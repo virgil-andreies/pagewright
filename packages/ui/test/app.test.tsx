@@ -36,9 +36,10 @@ function setup(pageCount = 3) {
   };
   const writer: PdfWriter = { save: vi.fn(async () => new Uint8Array([1])) };
   const saveFile = vi.fn(async (name: string) => ({ saved: true as const, name }));
+  const openSaveTarget = vi.fn(async (name: string) => ({ write: async () => saveFile(name) }));
   let nextFile: PickedFile[] = [];
   const platform = {
-    fs: { saveFile, pickFiles: vi.fn(async () => nextFile), onOpenRequest: () => () => {} },
+    fs: { openSaveTarget, pickFiles: vi.fn(async () => nextFile), onOpenRequest: () => () => {} },
     device: { platform: 'web', memoryBudgetMB: 1000 },
   } as unknown as Platform;
   let n = 0;
@@ -108,7 +109,7 @@ describe('AppShell', () => {
     const { open, saveFile } = setup();
     await open();
     fireEvent.click(btn('Save'));
-    await waitFor(() => expect(saveFile).toHaveBeenCalledWith('doc-edited.pdf', expect.anything()));
+    await waitFor(() => expect(saveFile).toHaveBeenCalledWith('doc-edited.pdf'));
   });
 
   it('shows errors and lets the user dismiss them', async () => {

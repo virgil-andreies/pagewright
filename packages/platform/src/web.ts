@@ -1,5 +1,5 @@
 import type {
-  DeviceInfo, FileSystemAdapter, PickedFile, Platform, SaveResult, SecureStore, ShareAdapter,
+  DeviceInfo, FileSystemAdapter, PickedFile, Platform, SaveTarget, SecureStore, ShareAdapter,
 } from './interfaces';
 
 const PDF_TYPE = 'application/pdf';
@@ -43,32 +43,49 @@ export class WebFileSystem implements FileSystemAdapter {
     });
   }
 
-  async saveFile(suggestedName: string, bytes: Uint8Array): Promise<SaveResult> {
+  /**
+   * Asks where to save *before* the (possibly long) save runs: the picker needs the user's click, which
+   * expires after a few seconds. Resolves to undefined when the user cancels.
+   */
+  async openSaveTarget(suggestedName: string): Promise<SaveTarget | undefined> {
+    const downloadTarget: SaveTarget = {
+      write: async (bytes) => (download(suggestedName, bytes), { saved: true, name: suggestedName }),
+    };
     const w = window as unknown as FsWindow;
-    if (w.showSaveFilePicker) {
-      try {
-        const handle = await w.showSaveFilePicker({
-          suggestedName,
-          types: [{ description: 'PDF', accept: { [PDF_TYPE]: ['.pdf'] } }],
-        });
-        const stream = await handle.createWritable();
-        await stream.write(bytes as BufferSource);
-        await stream.close();
-        return { saved: true, name: handle.name };
-      } catch (e) {
-        const name = (e as Error).name;
-        if (name === 'AbortError') return { saved: false };
-        // The browser refused the direct write: file open elsewhere, protected folder, or the click's
-        // user activation expired during a long save. Do not lose the work; hand it over as a download.
-        if (name === 'NotAllowedError' || name === 'NoModificationAllowedError' || name === 'SecurityError') {
-          download(suggestedName, bytes);
-          return { saved: true, name: suggestedName, viaDownload: true };
-        }
-        throw e;
-      }
+    if (!w.showSaveFilePicker) return downloadTarget;
+
+    let handle: Awaited<ReturnType<NonNullable<FsWindow['showSaveFilePicker']>>>;
+    try {
+      handle = await w.showSaveFilePicker({
+        suggestedName,
+        types: [{ description: 'PDF', accept: { [PDF_TYPE]: ['.pdf'] } }],
+      });
+    } catch (e) {
+      const name = (e as Error).name;
+      if (name === 'AbortError') return undefined;
+      if (name === 'SecurityError' || name === 'NotAllowedError') return downloadTarget; // no user activation
+      throw e;
     }
-    download(suggestedName, bytes);
-    return { saved: true, name: suggestedName };
+
+    return {
+      write: async (bytes) => {
+        try {
+          const stream = await handle.createWritable();
+          await stream.write(bytes as BufferSource);
+          await stream.close();
+          return { saved: true, name: handle.name };
+        } catch (e) {
+          // The browser refused the write: file open elsewhere or a protected folder. Do not lose the
+          // work; hand it over as a download instead.
+          const name = (e as Error).name;
+          if (name === 'NotAllowedError' || name === 'NoModificationAllowedError' || name === 'SecurityError') {
+            download(suggestedName, bytes);
+            return { saved: true, name: suggestedName, viaDownload: true };
+          }
+          throw e;
+        }
+      },
+    };
   }
 
   onOpenRequest(handler: (files: PickedFile[]) => void): () => void {

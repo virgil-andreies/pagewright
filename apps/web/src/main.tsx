@@ -2,7 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { PdfJsRenderer, PdfLibWriter, pdfjsVerify } from '@pagewright/engine';
+import { PdfJsRenderer, WorkerPdfWriter, pdfjsVerify, type WorkerLike } from '@pagewright/engine';
+import SaveWorker from '@pagewright/engine/src/save.worker.ts?worker';
 import { createWebPlatform } from '@pagewright/platform';
 import { AppShell, AppStore } from '@pagewright/ui';
 
@@ -13,8 +14,13 @@ const renderer = new PdfJsRenderer({
   pdfjs,
   standardFontDataUrl: `${import.meta.env.BASE_URL}pdfjs/standard_fonts/`,
 });
-// TODO(M0): move the writer into save.worker.ts (spec section 9).
-const writer = new PdfLibWriter({ memoryBudgetMB: platform.device.memoryBudgetMB, verify: pdfjsVerify(renderer) });
+// Saving runs in a worker (spec section 9); the result is verified here with PDF.js.
+const writer = new WorkerPdfWriter({
+  // A real Worker's MessageEvent has the `data` we read; WorkerLike just names that subset.
+  createWorker: () => new SaveWorker() as unknown as WorkerLike,
+  memoryBudgetMB: platform.device.memoryBudgetMB,
+  verify: pdfjsVerify(renderer),
+});
 const store = new AppStore({ renderer, writer, platform });
 
 // Handy for poking at state from the console while developing.

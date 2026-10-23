@@ -63,7 +63,8 @@ export const defaultSaveOpts: SaveOpts = {
 export type Progress = { phase: 'copy' | 'annotate' | 'serialize'; done: number; total: number };
 
 export interface PdfWriter {
-  save(doc: WorkingDocument, opts: SaveOpts, onProgress?: (p: Progress) => void): Promise<Uint8Array>;
+  /** Writers that run in a worker honour `signal` by terminating it and rejecting with SaveCancelled. */
+  save(doc: WorkingDocument, opts: SaveOpts, onProgress?: (p: Progress) => void, signal?: AbortSignal): Promise<Uint8Array>;
 }
 
 /** Annotation kinds the writer can currently emit; others throw UnsupportedAnnotation. */

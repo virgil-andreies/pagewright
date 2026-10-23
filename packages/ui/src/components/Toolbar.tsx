@@ -55,9 +55,12 @@ export function Toolbar() {
         <button onClick={() => store.setZoom(ui.zoom * 1.25)} disabled={!hasPages} aria-label="Zoom in">+</button>
       </div>
       <div className="status" aria-live="polite">
-        {ui.busy
-          ? `${ui.busy}${ui.progress ? ` ${ui.progress.phase} ${ui.progress.done}/${ui.progress.total}` : '…'}`
-          : hasPages
+        {ui.busy ? (
+          <>
+            {`${ui.busy}${ui.progress ? ` ${ui.progress.phase} ${ui.progress.done}/${ui.progress.total}` : '…'}`}{' '}
+            {(ui.busy === 'Saving' || ui.busy === 'Extracting') && <button onClick={() => store.cancelSave()}>Cancel</button>}
+          </>
+        ) : hasPages
             ? `Page ${ui.currentPage + 1} of ${doc.pages.length}${doc.dirty ? ' • unsaved changes' : ''}`
             : ''}
       </div>

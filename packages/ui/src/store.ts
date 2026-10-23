@@ -268,7 +268,11 @@ export class AppStore {
 
   // ---- Saving ------------------------------------------------------------------------
 
-  /** Returns true when a file was written. Signed sources need `confirmed` (see `ui.saveWarning`). */
+  /**
+   * Returns true when a file was written. Signed sources need `confirmed` (see `ui.saveWarning`).
+   * Order matters: the save dialog opens first, while the user's click is still fresh, and the slow
+   * work happens afterwards.
+   */
   async save(confirmed = false): Promise<boolean> {
     const doc = this.history.current;
     if (doc.pages.length === 0) return false;
@@ -281,24 +285,14 @@ export class AppStore {
       this.patch({ saveWarning: pre.warnings[0] });
       return false;
     }
-    this.patch({ saveWarning: undefined, busy: 'Saving', progress: undefined, error: undefined });
-    try {
-      const bytes = await this.deps.writer.save(doc, { ...defaultSaveOpts }, (progress) => this.patch({ progress }));
-      const first = Object.values(doc.sources)[0]?.name ?? 'document.pdf';
-      const result = await this.deps.platform.fs.saveFile(first.replace(/\.pdf$/i, '') + '-edited.pdf', bytes);
-      if (!result.saved) return false;
-      if (result.viaDownload) {
-        this.notice(`The browser would not write to the chosen file, so "${result.name}" was saved to your downloads folder instead. Close any program that has the original open to overwrite it.`);
-      }
+    this.patch({ saveWarning: undefined, error: undefined });
+    const first = Object.values(doc.sources)[0]?.name ?? 'document.pdf';
+    const ok = await this.writeOut(doc, first.replace(/\.pdf$/i, '') + '-edited.pdf', 'Saving');
+    if (ok) {
       this.history.markSaved();
       for (const n of pre.notices) this.notice(NOTICE_TEXT[n]);
-      return true;
-    } catch (e) {
-      this.fail(e);
-      return false;
-    } finally {
-      this.patch({ busy: undefined, progress: undefined });
     }
+    return ok;
   }
 
   cancelSaveWarning(): void {
@@ -309,17 +303,37 @@ export class AppStore {
   async extract(ids?: readonly PageId[]): Promise<boolean> {
     const t = this.targets(ids);
     if (!t.length) return false;
-    const sub: WorkingDocument = selectPages(this.history.current, t);
-    this.patch({ busy: 'Extracting', error: undefined });
+    this.patch({ error: undefined });
+    return this.writeOut(selectPages(this.history.current, t), 'extract.pdf', 'Extracting');
+  }
+
+  /** Aborts a running save/extract (the save worker is terminated). */
+  cancelSave(): void {
+    this.saveAbort?.abort();
+  }
+
+  private saveAbort?: AbortController;
+
+  private async writeOut(doc: WorkingDocument, fileName: string, label: string): Promise<boolean> {
+    if (this.saveAbort) return false; // one at a time
+    const ac = (this.saveAbort = new AbortController());
     try {
-      const bytes = await this.deps.writer.save(sub, { ...defaultSaveOpts });
-      const r = await this.deps.platform.fs.saveFile('extract.pdf', bytes);
-      return r.saved;
+      const target = await this.deps.platform.fs.openSaveTarget(fileName);
+      if (!target) return false; // the user cancelled the dialog: nothing has been done yet
+      this.patch({ busy: label, progress: undefined });
+      const bytes = await this.deps.writer.save(doc, { ...defaultSaveOpts }, (progress) => this.patch({ progress }), ac.signal);
+      const result = await target.write(bytes);
+      if (!result.saved) return false;
+      if (result.viaDownload) {
+        this.notice(`The browser would not write to the chosen file, so "${result.name}" was saved to your downloads folder instead. Close any program that has the original open to overwrite it.`);
+      }
+      return true;
     } catch (e) {
-      this.fail(e);
+      if (!(e instanceof Error && e.name === 'AbortError')) this.fail(e); // cancelling is not an error
       return false;
     } finally {
-      this.patch({ busy: undefined });
+      this.saveAbort = undefined;
+      this.patch({ busy: undefined, progress: undefined });
     }
   }
 

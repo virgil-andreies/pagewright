@@ -20,6 +20,7 @@ function fakeDoc(sourceId: string, pageCount: number): RenderDoc {
 
 function setup(opts: { pages?: Record<string, number>; password?: string } = {}) {
   const saved: { name: string; bytes: Uint8Array }[] = [];
+  const events: string[] = [];
   const renderer: PdfRenderer = {
     open: vi.fn(async (source, password) => {
       if (opts.password && password !== opts.password) {
@@ -28,14 +29,19 @@ function setup(opts: { pages?: Record<string, number>; password?: string } = {})
       return fakeDoc(source.id, opts.pages?.[source.name] ?? 3);
     }),
   };
-  const writer: PdfWriter = { save: vi.fn(async () => new Uint8Array([1, 2, 3])) };
+  const writer: PdfWriter = { save: vi.fn(async () => (events.push('write'), new Uint8Array([1, 2, 3]))) };
   const platform = {
-    fs: { saveFile: vi.fn(async (name: string, bytes: Uint8Array) => (saved.push({ name, bytes }), { saved: true as const, name })) },
+    fs: {
+      openSaveTarget: vi.fn(async (name: string) => {
+        events.push(`dialog ${name}`);
+        return { write: async (bytes: Uint8Array) => (saved.push({ name, bytes }), { saved: true as const, name }) };
+      }),
+    },
     device: { platform: 'web', memoryBudgetMB: 1000 },
   } as unknown as Platform;
   let n = 0;
   const store = new AppStore({ renderer, writer, platform, newId: () => `id${++n}` });
-  return { store, renderer, writer, platform, saved };
+  return { store, renderer, writer, platform, saved, events };
 }
 
 const ids = (s: AppStore) => s.getSnapshot().doc.pages.map((p) => p.id);
@@ -176,10 +182,59 @@ describe('AppStore: saving', () => {
   it('tells the user when the browser refused a direct write and the file was downloaded instead', async () => {
     const { store, platform } = setup();
     await store.addFiles([file('a.pdf')]);
-    vi.mocked(platform.fs.saveFile).mockResolvedValueOnce({ saved: true, name: 'a-edited.pdf', viaDownload: true });
+    vi.mocked(platform.fs.openSaveTarget).mockResolvedValueOnce({
+      write: async () => ({ saved: true, name: 'a-edited.pdf', viaDownload: true }),
+    });
     expect(await store.save()).toBe(true);
     expect(store.getSnapshot().doc.dirty).toBe(false);
     expect(store.getSnapshot().ui.notices.some((n) => /downloads folder/.test(n))).toBe(true);
+  });
+
+  it('opens the save dialog before doing the slow work', async () => {
+    const { store, events } = setup();
+    await store.addFiles([file('a.pdf')]);
+    await store.save();
+    expect(events).toEqual(['dialog a-edited.pdf', 'write']);
+  });
+
+  it('does nothing when the user cancels the save dialog', async () => {
+    const { store, platform, writer } = setup();
+    await store.addFiles([file('a.pdf')]);
+    vi.mocked(platform.fs.openSaveTarget).mockResolvedValueOnce(undefined);
+    expect(await store.save()).toBe(false);
+    expect(writer.save).not.toHaveBeenCalled();
+    expect(store.getSnapshot().doc.dirty).toBe(true);
+    expect(store.getSnapshot().ui.error).toBeUndefined();
+  });
+
+  it('cancelling a running save is not an error and leaves the document dirty', async () => {
+    const { store, writer } = setup();
+    await store.addFiles([file('a.pdf')]);
+    vi.mocked(writer.save).mockImplementationOnce(
+      (_d, _o, _p, signal) =>
+        new Promise((_, reject) => signal!.addEventListener('abort', () => reject(Object.assign(new Error('Save cancelled'), { name: 'AbortError' })))),
+    );
+    const p = store.save();
+    await vi.waitFor(() => expect(store.getSnapshot().ui.busy).toBe('Saving'));
+    store.cancelSave();
+    expect(await p).toBe(false);
+    const ui = store.getSnapshot().ui;
+    expect(ui.error).toBeUndefined();
+    expect(ui.busy).toBeUndefined();
+    expect(store.getSnapshot().doc.dirty).toBe(true);
+    expect(await store.save()).toBe(true); // usable again afterwards
+  });
+
+  it('ignores a second save while one is running', async () => {
+    const { store, writer } = setup();
+    await store.addFiles([file('a.pdf')]);
+    let release!: () => void;
+    vi.mocked(writer.save).mockImplementationOnce(() => new Promise((r) => (release = () => r(new Uint8Array([1])))));
+    const first = store.save();
+    await vi.waitFor(() => expect(store.getSnapshot().ui.busy).toBe('Saving'));
+    expect(await store.save()).toBe(false);
+    release();
+    expect(await first).toBe(true);
   });
 
   it('blocks saving an encrypted source', async () => {

@@ -12,9 +12,19 @@ export type SaveResult =
   | { saved: true; name: string; viaDownload?: boolean }
   | { saved: false };
 
+export interface SaveTarget {
+  /** Step 2: write the finished document. */
+  write(bytes: Uint8Array): Promise<SaveResult>;
+}
+
 export interface FileSystemAdapter {
   pickFiles(opts: { multiple: boolean; accept: string[] }): Promise<PickedFile[]>;
-  saveFile(suggestedName: string, bytes: Uint8Array): Promise<SaveResult>;
+  /**
+   * Step 1 of saving: let the user choose where to write. Must be called straight from a user gesture,
+   * before the slow work, because browsers only allow the picker shortly after a click.
+   * Resolves to undefined when the user cancels.
+   */
+  openSaveTarget(suggestedName: string): Promise<SaveTarget | undefined>;
   /** Called when the OS opens a file with the app ("Open with", drag onto icon, share target). Returns unsubscribe. */
   onOpenRequest(handler: (files: PickedFile[]) => void): () => void;
 }
