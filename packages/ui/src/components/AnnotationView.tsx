@@ -1,6 +1,6 @@
 import {
-  annotationBounds, arrowHead, pdfToViewport, quadBounds, shapeHandles,
-  type Annotation, type PageGeometry, type Point, type Quad, type RGBA, type ShapeAnnot,
+  NOTE_ICON_LINE, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, pdfToViewport, quadBounds, shapeHandles,
+  type Annotation, type NoteAnnot, type PageGeometry, type Point, type Quad, type RGBA, type ShapeAnnot,
 } from '@pagewright/core';
 
 export const rgb = (c: { r: number; g: number; b: number }) =>
@@ -51,25 +51,53 @@ export function AnnotationView({ annot, geometry, scale, selected }: ViewProps &
     case 'shape':
       body = <ShapeBody shape={annot} vp={vp} scale={scale} />;
       break;
+    case 'note':
+      body = <NoteBody note={annot} vp={vp} scale={scale} />;
+      break;
     default:
       break; // notes, free text and stamps arrive with their own views
   }
 
-  const b = annotationBounds(annot);
-  const a = vp({ x: b.x, y: b.y });
-  const c = vp({ x: b.x + b.w, y: b.y + b.h });
+  // Notes keep their icon upright, so their box is measured on screen rather than in page space.
+  let outline: { x: number; y: number; w: number; h: number };
+  if (annot.type === 'note') {
+    outline = noteViewportRect(annot, vp, scale);
+  } else {
+    const b = annotationBounds(annot);
+    const a = vp({ x: b.x, y: b.y });
+    const c = vp({ x: b.x + b.w, y: b.y + b.h });
+    outline = { x: Math.min(a.x, c.x), y: Math.min(a.y, c.y), w: Math.abs(a.x - c.x), h: Math.abs(a.y - c.y) };
+  }
   return (
     <g data-annot-id={annot.id} className={`annot${selected ? ' selected' : ''}`} opacity={opacity}>
       {body}
       {selected && (
-        <rect
-          className="selection-outline"
-          x={Math.min(a.x, c.x) - 2}
-          y={Math.min(a.y, c.y) - 2}
-          width={Math.abs(a.x - c.x) + 4}
-          height={Math.abs(a.y - c.y) + 4}
-        />
+        <rect className="selection-outline" x={outline.x - 2} y={outline.y - 2} width={outline.w + 4} height={outline.h + 4} />
       )}
+    </g>
+  );
+}
+
+/**
+ * Where a note's icon is on screen. The note is anchored at its page position, but the icon itself is never
+ * rotated with the page (the PDF NoRotate flag), so it always extends right and down from that point.
+ */
+export function noteViewportRect(note: NoteAnnot, vp: (p: Point) => Point, scale: number) {
+  const a = vp(note.position);
+  return { x: a.x, y: a.y, w: NOTE_SIZE * scale, h: NOTE_SIZE * scale };
+}
+
+function NoteBody({ note, vp, scale }: { note: NoteAnnot; vp: (p: Point) => Point; scale: number }) {
+  const a = vp(note.position);
+  const fill = rgb(note.color);
+  const ink = rgb(NOTE_INK);
+  return (
+    <g transform={`translate(${a.x} ${a.y}) scale(${scale})`} strokeLinecap="round" strokeLinejoin="round" strokeWidth={NOTE_ICON_LINE} stroke={ink}>
+      {noteIcon(note.icon).map((s, i) => {
+        if (s.kind === 'line') return <line key={i} x1={s.from.x} y1={s.from.y} x2={s.to.x} y2={s.to.y} />;
+        if (s.kind === 'polygon') return <polygon key={i} points={s.points.map((p) => `${p.x},${p.y}`).join(' ')} fill={s.fill ? fill : 'none'} />;
+        return <rect key={i} x={s.x} y={s.y} width={s.w} height={s.h} rx={s.radius} fill={s.fill ? fill : 'none'} />;
+      })}
     </g>
   );
 }

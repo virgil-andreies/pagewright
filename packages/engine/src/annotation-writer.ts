@@ -1,9 +1,9 @@
-import type { Annotation, InkAnnot, RGBA, ShapeAnnot } from '@pagewright/core';
+import { annotationBounds, NOTE_SIZE, type Annotation, type InkAnnot, type NoteAnnot, type RGBA, type ShapeAnnot } from '@pagewright/core';
 import {
-  PDFArray, PDFDict, PDFHexString, PDFName, PDFString,
+  PDFArray, PDFBool, PDFDict, PDFHexString, PDFName, PDFString,
   type PDFDocument, type PDFPage, type PDFRef,
 } from '@cantoo/pdf-lib';
-import { buildInkAppearance, buildShapeAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
+import { buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
 
 export interface WriteContext {
   pdf: PDFDocument;
@@ -52,8 +52,41 @@ function registerAppearance(ctx: WriteContext, ap: AppearanceStream): PDFRef {
   return context.register(stream);
 }
 
+/** Print + NoZoom + NoRotate: what viewers use for note icons, which stay upright and the same size. */
+const NOTE_FLAGS = 4 + 8 + 16;
+
 export class DefaultAnnotationWriter implements AnnotationWriter {
   write(ctx: WriteContext, annot: Annotation): PDFRef {
+    const ref = this.writeOne(ctx, annot);
+    this.writeReplies(ctx, annot, ref);
+    return ref;
+  }
+
+  /**
+   * Replies are /Text annotations that point at their parent with /IRT and /RT /R, which is how Acrobat and
+   * other viewers rebuild a comment thread. They sit at the parent's upper-left corner and have no
+   * appearance of their own, so viewers stack their icon under the parent's.
+   */
+  private writeReplies(ctx: WriteContext, annot: Annotation, parent: PDFRef): void {
+    const replies = annot.comment?.replies ?? [];
+    if (replies.length === 0) return;
+    const b = annotationBounds(annot);
+    const rect = [b.x, b.y + b.h - NOTE_SIZE, b.x + NOTE_SIZE, b.y + b.h];
+    const { context } = ctx.pdf;
+    for (const reply of replies) {
+      const dict = context.obj({ Type: 'Annot', Subtype: 'Text', Name: 'Comment', Rect: rect, F: NOTE_FLAGS, Open: false });
+      dict.set(PDFName.of('IRT'), parent);
+      dict.set(PDFName.of('RT'), PDFName.of('R'));
+      dict.set(PDFName.of('NM'), PDFHexString.fromText(reply.id));
+      dict.set(PDFName.of('T'), PDFHexString.fromText(reply.author));
+      dict.set(PDFName.of('M'), PDFString.of(pdfDate(reply.createdAt)));
+      dict.set(PDFName.of('CreationDate'), PDFString.of(pdfDate(reply.createdAt)));
+      dict.set(PDFName.of('Contents'), PDFHexString.fromText(reply.text));
+      this.attach(ctx, dict);
+    }
+  }
+
+  private writeOne(ctx: WriteContext, annot: Annotation): PDFRef {
     switch (annot.type) {
       case 'highlight':
       case 'underline':
@@ -63,6 +96,8 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
         return this.writeInk(ctx, annot);
       case 'shape':
         return this.writeShape(ctx, annot);
+      case 'note':
+        return this.writeNote(ctx, annot);
       default:
         throw new UnsupportedAnnotation(annot.type);
     }
@@ -93,6 +128,16 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
     dict.set(PDFName.of('InkList'), context.obj(annot.strokes.filter((s) => s.length > 0).map((s) => s.flatMap((p) => [p.x, p.y]))));
     dict.set(PDFName.of('BS'), context.obj({ W: annot.width, S: 'S' }));
     dict.set(PDFName.of('AP'), context.obj({ N: registerAppearance(ctx, ap) }));
+    return this.attach(ctx, dict);
+  }
+
+  private writeNote(ctx: WriteContext, annot: NoteAnnot): PDFRef {
+    const ap = buildNoteAppearance(annot);
+    const dict = this.commonEntries(ctx, annot, 'Text', ap.bbox);
+    dict.set(PDFName.of('Name'), PDFName.of(annot.icon === 'comment' ? 'Comment' : 'Note'));
+    dict.set(PDFName.of('F'), ctx.pdf.context.obj(NOTE_FLAGS));
+    dict.set(PDFName.of('Open'), PDFBool.False);
+    dict.set(PDFName.of('AP'), ctx.pdf.context.obj({ N: registerAppearance(ctx, ap) }));
     return this.attach(ctx, dict);
   }
 

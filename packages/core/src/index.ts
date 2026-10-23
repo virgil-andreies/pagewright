@@ -6,3 +6,4 @@ export * from './history';
 export * from './commands';
 export * from './policies';
 export * from './annotation-geometry';
+export * from './note-icon';

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  constrainDrag, hitTest, pdfToViewport, quadBounds, resizeShape, simplifyPolyline, translateAnnotation, viewportToPdf,
+  NOTE_FILL, constrainDrag, hitTest, pdfToViewport, quadBounds, resizeShape, simplifyPolyline, translateAnnotation, viewportToPdf,
   type Annotation, type PageGeometry, type PageRef, type Point, type Quad, type Rect, type ResizeHandle, type ShapeAnnot,
 } from '@pagewright/core';
 import type { TextRun } from '@pagewright/engine';
 import { useSnapshot, useUi } from '../react';
 import type { MarkupType, ShapeTool } from '../store';
-import { AnnotationView, Handles } from './AnnotationView';
+import { AnnotationView, Handles, noteViewportRect } from './AnnotationView';
 
 const EMPTY: readonly Annotation[] = [];
 const MARKUP_TOOLS: readonly string[] = ['highlight', 'underline', 'strikeout'];
@@ -66,6 +66,13 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
   const selectedId = ui.selectedAnnot?.pageId === page.id ? ui.selectedAnnot.id : undefined;
   const selected = annots.find((a) => a.id === selectedId);
 
+  /** Notes are hit on screen (their icon never rotates with the page); everything else in page space. */
+  const touches = (a: Annotation, screen: Point, pdf: Point) => {
+    if (a.type !== 'note') return hitTest(a, pdf, HIT_SLOP_PX / scale);
+    const r = noteViewportRect(a, toViewport, scale);
+    return screen.x >= r.x - HIT_SLOP_PX && screen.x <= r.x + r.w + HIT_SLOP_PX && screen.y >= r.y - HIT_SLOP_PX && screen.y <= r.y + r.h + HIT_SLOP_PX;
+  };
+
   const onDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     const p = local(e);
@@ -78,12 +85,18 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
         setGesture({ kind: 'edit', original: selected, current: selected, from: pdf, handle, moved: false });
         return;
       }
-      const hit = [...annots].reverse().find((a) => hitTest(a, pdf, HIT_SLOP_PX / scale));
+      const hit = [...annots].reverse().find((a) => touches(a, p, pdf));
       store.selectAnnotation(hit ? { pageId: page.id, id: hit.id } : undefined);
       if (hit && hit.origin === 'app') {
         e.currentTarget.setPointerCapture?.(e.pointerId);
         setGesture({ kind: 'edit', original: hit, current: hit, from: pdf, moved: false });
       }
+      return;
+    }
+
+    if (tool === 'note') {
+      // The click is the icon's upper-left corner. The note exists once it has text (see the comments panel).
+      store.beginNote(page.id, pdf);
       return;
     }
 
@@ -172,6 +185,11 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
         <Handles shape={shownSelected} geometry={geometry} scale={scale} />
       )}
       {draft && <AnnotationView annot={draft} geometry={geometry} scale={scale} />}
+      {ui.draftNote?.pageId === page.id && (
+        <g opacity={0.6} data-testid="draft-note">
+          <AnnotationView annot={ghostNote(ui.draftNote.position, page.id)} geometry={geometry} scale={scale} />
+        </g>
+      )}
       {gesture?.kind === 'markup' && (
         <rect
           className="drag-rect"
@@ -183,6 +201,14 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
       )}
     </svg>
   );
+}
+
+/** Where the note being written will go. Never stored. */
+function ghostNote(position: Point, pageId: string): Annotation {
+  return {
+    type: 'note', id: 'draft-note', pageId, author: '', createdAt: '', modifiedAt: '', opacity: 1, origin: 'app',
+    color: NOTE_FILL, position, icon: 'note',
+  };
 }
 
 /** A throw-away annotation that shows the gesture in progress; never stored. */

@@ -1,13 +1,13 @@
 import {
-  History, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
-  type Annotation, type AnnotId, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
+  History, NOTE_FILL, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  type Annotation, type AnnotComment, type AnnotId, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
 import type { PickedFile, Platform } from '@pagewright/platform';
 
 export type MarkupType = 'highlight' | 'underline' | 'strikeout';
 export type ShapeTool = 'rect' | 'ellipse' | 'line' | 'arrow';
-export type ToolId = 'select' | MarkupType | 'ink' | ShapeTool;
+export type ToolId = 'select' | MarkupType | 'ink' | ShapeTool | 'note';
 
 /** Stroke and fill for the drawing tools. Changing it also restyles the selected ink or shape. */
 export interface DrawStyle {
@@ -30,6 +30,9 @@ export interface UiState {
   zoom: number;
   activeTool: ToolId;
   drawStyle: DrawStyle;
+  commentsOpen: boolean;
+  /** A note being placed: it becomes an annotation only once it has text (so nothing empty is left behind). */
+  draftNote?: { pageId: PageId; position: Point };
   selection: ReadonlySet<PageId>;
   /** Anchor for shift-click range selection. */
   anchor?: PageId;
@@ -68,7 +71,7 @@ const MAX_ZOOM = 4;
 
 export class AppStore {
   readonly history = new History(emptyDocument());
-  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, selection: new Set(), currentPage: 0, notices: [] };
+  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, commentsOpen: false, selection: new Set(), currentPage: 0, notices: [] };
   private snap!: Snapshot;
   private listeners = new Set<() => void>();
   private renderDocs = new Map<SourceId, RenderDoc>();
@@ -79,6 +82,13 @@ export class AppStore {
   constructor(private readonly deps: StoreDeps) {
     this.newId = deps.newId ?? (() => crypto.randomUUID());
     this.rebuild();
+    // The author name lives in secure storage; load it without delaying start-up.
+    void deps.platform.secure?.get<string>('author').then((name) => {
+      if (name) {
+        this.author = name;
+        this.emit();
+      }
+    });
     this.history.subscribe(() => {
       this.pruneSelection();
       this.emit();
@@ -242,7 +252,7 @@ export class AppStore {
     } as const);
   }
 
-  private addDrawn(partial: { type: 'ink' | 'shape'; pageId: PageId; color: RGBA } & Record<string, unknown>): AnnotId {
+  private addDrawn(partial: { type: 'ink' | 'shape' | 'note'; pageId: PageId; color: RGBA } & Record<string, unknown>): AnnotId {
     const now = new Date().toISOString();
     const id = this.newId();
     this.history.execute(
@@ -271,6 +281,94 @@ export class AppStore {
       else delete next.fill;
       this.updateAnnotation(next);
     }
+  }
+
+  // ---- Notes and comments ------------------------------------------------------------
+
+  /** Start a note at `position` (its upper-left corner, PDF user space). Saved by `saveDraftNote`. */
+  beginNote(pageId: PageId, position: Point): void {
+    this.patch({ draftNote: { pageId, position }, commentsOpen: true, selectedAnnot: undefined });
+  }
+
+  cancelDraftNote(): void {
+    this.patch({ draftNote: undefined });
+  }
+
+  /** Turns the draft into a note carrying `text`. Empty text creates nothing. */
+  saveDraftNote(text: string): AnnotId | undefined {
+    const draft = this.ui.draftNote;
+    const body = text.trim();
+    if (!draft || !body) return undefined;
+    const id = this.addDrawn({
+      type: 'note', pageId: draft.pageId, position: draft.position, icon: 'note', color: NOTE_FILL,
+      comment: { text: body, replies: [] },
+    });
+    this.patch({ draftNote: undefined, selectedAnnot: { pageId: draft.pageId, id } });
+    return id;
+  }
+
+  /** Sets (or, when empty, clears) the comment on any annotation. Replies are kept while there is text. */
+  setComment(pageId: PageId, annotId: AnnotId, text: string): void {
+    this.changeComment(pageId, annotId, (c) => {
+      const body = text.trim();
+      if (!body) return undefined;
+      if (c?.text === body) return c; // unchanged: no update, no undo step
+      return { text: body, replies: c?.replies ?? [] };
+    });
+  }
+
+  /** Removes the comment and its replies. (A note is deleted as a whole instead.) */
+  removeComment(pageId: PageId, annotId: AnnotId): void {
+    this.changeComment(pageId, annotId, () => undefined);
+  }
+
+  addReply(pageId: PageId, annotId: AnnotId, text: string): void {
+    const body = text.trim();
+    if (!body) return;
+    const reply = { id: this.newId(), author: this.author, createdAt: new Date().toISOString(), text: body };
+    this.changeComment(pageId, annotId, (c) => (c ? { ...c, replies: [...c.replies, reply] } : c));
+  }
+
+  editReply(pageId: PageId, annotId: AnnotId, replyId: string, text: string): void {
+    const body = text.trim();
+    if (!body) return;
+    this.changeComment(pageId, annotId, (c) => c && { ...c, replies: c.replies.map((r) => (r.id === replyId ? { ...r, text: body } : r)) });
+  }
+
+  deleteReply(pageId: PageId, annotId: AnnotId, replyId: string): void {
+    this.changeComment(pageId, annotId, (c) => c && { ...c, replies: c.replies.filter((r) => r.id !== replyId) });
+  }
+
+  /** Removes one annotation (comments and replies go with it). */
+  deleteAnnotation(pageId: PageId, annotId: AnnotId): void {
+    if (this.ui.selectedAnnot?.id === annotId) this.patch({ selectedAnnot: undefined });
+    this.history.execute(removeAnnotation(pageId, annotId));
+  }
+
+  private changeComment(pageId: PageId, annotId: AnnotId, change: (c: AnnotComment | undefined) => AnnotComment | undefined): void {
+    const a = this.history.current.annotations[pageId]?.find((x) => x.id === annotId);
+    if (!a) return;
+    const comment = change(a.comment);
+    if (comment === a.comment) return;
+    const { comment: _old, ...rest } = a;
+    this.updateAnnotation((comment ? { ...rest, comment } : rest) as Annotation);
+  }
+
+  toggleComments(open = !this.ui.commentsOpen): void {
+    this.patch({ commentsOpen: open });
+  }
+
+  /** The name shown on new comments and replies. Remembered across sessions. */
+  setAuthor(name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === this.author) return;
+    this.author = trimmed;
+    void this.deps.platform.secure?.set('author', trimmed);
+    this.emit();
+  }
+
+  getAuthor(): string {
+    return this.author;
   }
 
   selectAnnotation(sel: { pageId: PageId; id: AnnotId } | undefined): void {

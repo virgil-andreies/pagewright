@@ -1,4 +1,5 @@
 import type { RGBA } from '@pagewright/core';
+import { listThreads } from '../comments';
 import { useSnapshot, useUi } from '../react';
 import type { ToolId } from '../store';
 
@@ -12,6 +13,7 @@ const TOOLS: { id: ToolId; label: string; key: string }[] = [
   { id: 'ellipse', label: 'Ellipse', key: 'E' },
   { id: 'line', label: 'Line', key: 'L' },
   { id: 'arrow', label: 'Arrow', key: 'A' },
+  { id: 'note', label: 'Note', key: 'N' },
 ];
 
 export const SWATCHES: { name: string; color: RGBA }[] = [
@@ -62,6 +64,7 @@ export function Toolbar() {
   const hasPages = doc.pages.length > 0;
   const hasSel = ui.selection.size > 0;
   const busy = !!ui.busy;
+  const threadCount = listThreads(doc).length;
 
   const open = async () => store.addFiles(await store.platform.fs.pickFiles({ multiple: true, accept: ['.pdf', 'application/pdf'] }));
 
@@ -98,6 +101,11 @@ export function Toolbar() {
         ))}
       </div>
       <StyleControls />
+      <div className="group">
+        <button aria-pressed={ui.commentsOpen} className={ui.commentsOpen ? 'active' : ''} onClick={() => store.toggleComments()} disabled={!hasPages} title="Comments (C)">
+          Comments{threadCount > 0 ? ` (${threadCount})` : ''}
+        </button>
+      </div>
       <div className="group zoom">
         <button onClick={() => store.setZoom(ui.zoom / 1.25)} disabled={!hasPages} aria-label="Zoom out">−</button>
         <button onClick={() => store.setZoom(1)} disabled={!hasPages} aria-label="Reset zoom">{Math.round(ui.zoom * 100)}%</button>

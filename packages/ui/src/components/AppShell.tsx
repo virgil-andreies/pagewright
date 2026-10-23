@@ -1,7 +1,8 @@
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { RenderQueue } from '@pagewright/engine';
-import { UiContext } from '../react';
+import { UiContext, useSnapshot } from '../react';
 import type { AppStore, ToolId } from '../store';
+import { CommentsPanel } from './CommentsPanel';
 import { Dialogs } from './Dialogs';
 import { PageGrid } from './PageGrid';
 import { Toolbar } from './Toolbar';
@@ -14,7 +15,7 @@ export function PagewrightProvider({ store, children }: { store: AppStore; child
 }
 
 const TOOL_KEYS: Record<string, ToolId> = {
-  v: 'select', h: 'highlight', u: 'underline', s: 'strikeout', p: 'ink', r: 'rect', e: 'ellipse', l: 'line', a: 'arrow',
+  v: 'select', h: 'highlight', u: 'underline', s: 'strikeout', p: 'ink', r: 'rect', e: 'ellipse', l: 'line', a: 'arrow', n: 'note',
 };
 
 function useShortcuts(store: AppStore) {
@@ -37,7 +38,8 @@ function useShortcuts(store: AppStore) {
       } else if (k === 'escape') {
         store.selectAnnotation(undefined);
         store.clearSelection();
-      } else if (!mod && TOOL_KEYS[k] && store.getSnapshot().doc.pages.length > 0) store.setTool(TOOL_KEYS[k]);
+      } else if (!mod && k === 'c' && store.getSnapshot().doc.pages.length > 0) store.toggleComments();
+      else if (!mod && TOOL_KEYS[k] && store.getSnapshot().doc.pages.length > 0) store.setTool(TOOL_KEYS[k]);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -46,6 +48,7 @@ function useShortcuts(store: AppStore) {
 
 function Shell({ store }: { store: AppStore }) {
   useShortcuts(store);
+  const commentsOpen = useSnapshot().ui.commentsOpen;
   // Files opened via the OS or drag-and-drop.
   useEffect(() => store.platform.fs.onOpenRequest((files) => void store.addFiles(files)), [store]);
 
@@ -59,6 +62,7 @@ function Shell({ store }: { store: AppStore }) {
         <main className="main">
           <Viewer />
         </main>
+        {commentsOpen && <CommentsPanel />}
       </div>
       <Dialogs />
     </div>

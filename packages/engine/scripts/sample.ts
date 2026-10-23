@@ -108,6 +108,18 @@ async function main() {
   h.execute(addAnnotation(shape('rect-p4', 'p4', 'rect', { x: 66, y: 652, w: 410, h: 30 }, red2, 2)));
   h.execute(addAnnotation(shape('ell-p2', 'p2', 'ellipse', { x: 66, y: 650, w: 410, h: 40 }, blue2, 2)));
 
+  // Notes and comment threads. The note on p3 sits on a rotated page: viewers keep its icon upright.
+  const reply = (id: string, author: string, text: string) => ({ id, author, createdAt: new Date().toISOString(), text });
+  const noteColor = { r: 1, g: 0.85, b: 0.25, a: 1 };
+  h.execute(addAnnotation({ ...common, type: 'note', id: 'note-1', pageId: 'p1', color: noteColor, icon: 'note', position: { x: 480, y: 700 },
+    comment: { text: 'A note with a short thread.', replies: [reply('note-1-r1', 'Grace', 'Agreed, and here is a reply.'), reply('note-1-r2', 'Ada', 'And a second reply.')] } }));
+  h.execute(addAnnotation({ ...common, type: 'note', id: 'note-2', pageId: 'p1', color: noteColor, icon: 'comment', position: { x: 520, y: 700 },
+    comment: { text: 'The speech-bubble icon.', replies: [] } }));
+  h.execute(addAnnotation({ ...common, type: 'note', id: 'note-p3', pageId: 'p3', color: noteColor, icon: 'note', position: { x: 480, y: 700 },
+    comment: { text: 'Icon should stay upright on a rotated page.', replies: [] } }));
+  h.execute(addAnnotation({ ...common, type: 'note', id: 'note-p4', pageId: 'p4', color: noteColor, icon: 'comment', position: { x: 300, y: 560 },
+    comment: { text: 'On the offset-CropBox page.', replies: [] } }));
+
   // Extra rotation on top of the source rotation: p2 -> 90, p3 -> 90 + 90.
   h.execute(rotatePages(['p2', 'p3'], 90));
 

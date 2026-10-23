@@ -1,5 +1,5 @@
-import type { InkAnnot, Point, Quad, RGBA, ShapeAnnot, TextMarkupAnnot } from '@pagewright/core';
-import { annotationBounds, arrowHead, quadBounds } from '@pagewright/core';
+import type { InkAnnot, NoteAnnot, Point, Quad, RGBA, ShapeAnnot, TextMarkupAnnot } from '@pagewright/core';
+import { NOTE_ICON_LINE, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, quadBounds } from '@pagewright/core';
 
 /** A Form XObject description, independent of pdf-lib so it can be unit tested as plain data. */
 export interface AppearanceStream {
@@ -127,4 +127,46 @@ export function buildShapeAppearance(a: ShapeAnnot): AppearanceStream {
     }
   }
   return { bbox: boundsTuple(a), content: ops.join('\n'), multiply: false, opacity: a.opacity * a.color.a };
+}
+
+/**
+ * The sticky-note icon, drawn from the same shapes the editor uses. Its box is the annotation's /Rect:
+ * NOTE_SIZE square with the upper-left corner at the note's position.
+ */
+export function buildNoteAppearance(a: NoteAnnot): AppearanceStream {
+  const { x: x0, y: y0 } = a.position;
+  const X = (u: number) => n(x0 + u);
+  const Y = (v: number) => n(y0 - v); // the icon's y grows down, PDF's grows up
+  const ops = [`${rgb(a.color)} rg`, `${rgb(NOTE_INK)} RG`, `${NOTE_ICON_LINE} w`, '1 J 1 j'];
+
+  for (const shape of noteIcon(a.icon)) {
+    if (shape.kind === 'line') {
+      ops.push(`${X(shape.from.x)} ${Y(shape.from.y)} m`, `${X(shape.to.x)} ${Y(shape.to.y)} l`, 'S');
+    } else if (shape.kind === 'polygon') {
+      const [first, ...rest] = shape.points;
+      ops.push(`${X(first!.x)} ${Y(first!.y)} m`, ...rest.map((p) => `${X(p.x)} ${Y(p.y)} l`), shape.fill ? 'h B' : 'h S');
+    } else {
+      const { x, y, w, h, radius: r } = shape;
+      const k = r * (1 - KAPPA); // distance from a corner to the Bezier control point
+      const [l, t, rt, b] = [x, y, x + w, y + h];
+      ops.push(
+        `${X(l + r)} ${Y(t)} m`,
+        `${X(rt - r)} ${Y(t)} l`,
+        `${X(rt - k)} ${Y(t)} ${X(rt)} ${Y(t + k)} ${X(rt)} ${Y(t + r)} c`,
+        `${X(rt)} ${Y(b - r)} l`,
+        `${X(rt)} ${Y(b - k)} ${X(rt - k)} ${Y(b)} ${X(rt - r)} ${Y(b)} c`,
+        `${X(l + r)} ${Y(b)} l`,
+        `${X(l + k)} ${Y(b)} ${X(l)} ${Y(b - k)} ${X(l)} ${Y(b - r)} c`,
+        `${X(l)} ${Y(t + r)} l`,
+        `${X(l)} ${Y(t + k)} ${X(l + k)} ${Y(t)} ${X(l + r)} ${Y(t)} c`,
+        shape.fill ? 'h B' : 'h S',
+      );
+    }
+  }
+  return {
+    bbox: [x0, y0 - NOTE_SIZE, x0 + NOTE_SIZE, y0],
+    content: ops.join('\n'),
+    multiply: false,
+    opacity: a.opacity * a.color.a,
+  };
 }

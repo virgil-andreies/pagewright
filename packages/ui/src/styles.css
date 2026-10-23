@@ -64,7 +64,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .page-view canvas { display: block; }
 .overlay { position: absolute; inset: 0; }
 .overlay { touch-action: pan-y pinch-zoom; }
-.overlay:is(.tool-highlight, .tool-underline, .tool-strikeout, .tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow) { cursor: crosshair; touch-action: none; }
+.overlay:is(.tool-highlight, .tool-underline, .tool-strikeout, .tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow, .tool-note) { cursor: crosshair; touch-action: none; }
 .overlay .annot { pointer-events: none; }
 .handle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; cursor: nwse-resize; }
 .selection-outline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 2; }
@@ -83,6 +83,35 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .toast { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgb(0 0 0 / 0.2); }
 .toast.error { border-color: var(--danger); }
 .toast button { border: none; padding: 0 4px; background: none; }
+
+/* Comments panel */
+.comments { width: 300px; flex: none; overflow-y: auto; background: var(--surface); border-left: 1px solid var(--border); padding: 0 12px 16px; box-sizing: border-box; }
+.comments header { display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--surface); padding: 10px 0 4px; z-index: 1; }
+.comments h2 { margin: 0; font-size: 15px; }
+.comments h3 { margin: 12px 0 4px; font-size: 13px; }
+.comments header button { border: none; padding: 0 6px; font-size: 18px; background: none; }
+.comments .author { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.comments input, .comments textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; box-sizing: border-box; width: 100%; }
+.comments textarea { resize: vertical; }
+.comments .composer { margin-top: 6px; }
+.comments .actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+.comments .new-note { border: 1px solid var(--accent); border-radius: 8px; padding: 0 10px 8px; margin-bottom: 12px; }
+.threads, .replies { list-style: none; margin: 0; padding: 0; }
+.thread { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.thread.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.thread-head { display: flex; gap: 6px; align-items: baseline; border: none; background: none; padding: 0; width: 100%; text-align: left; cursor: pointer; }
+.thread-head span { color: var(--muted); font-size: 12px; }
+.comments .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.comments .meta strong { color: var(--text); }
+.comments p { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.row-actions { display: flex; gap: 4px; }
+.row-actions button { border: none; background: none; color: var(--muted); padding: 2px 4px; font-size: 12px; }
+.row-actions button:hover { color: var(--accent); }
+.replies { margin: 6px 0 0 8px; border-left: 2px solid var(--border); padding-left: 8px; }
+.reply { margin-bottom: 6px; }
+@media (max-width: 640px) {
+  .comments { width: auto; height: 45%; border-left: none; border-top: 1px solid var(--border); }
+}
 
 /* Narrow screens: pages strip above the viewer */
 @media (max-width: 640px) {
