@@ -4,7 +4,7 @@ import type { Annotation, Rect, Quad, Rotation, SourceDoc, SourceId, WorkingDocu
 
 export interface PdfRenderer {
   /** May throw an AppError with code 'PasswordRequired'. */
-  open(source: SourceDoc): Promise<RenderDoc>;
+  open(source: SourceDoc, password?: string): Promise<RenderDoc>;
 }
 
 export interface RenderDoc {
