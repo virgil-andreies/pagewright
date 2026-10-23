@@ -49,6 +49,15 @@ describe('placing a note', () => {
     expect(t.notes()).toHaveLength(0);
   });
 
+  it('puts keyboard focus in the note box even though the browser moves focus during the press', async () => {
+    const t = await ready();
+    fireEvent.click(screen.getByRole('radio', { name: 'Note' }));
+    fireEvent.pointerDown(t.svg, { button: 0, pointerId: 1, ...px(50, 150) });
+    (document.activeElement as HTMLElement | null)?.blur(); // what a real mousedown does
+    fireEvent.pointerUp(t.svg, { pointerId: 1, ...px(50, 150) });
+    expect(document.activeElement).toBe(screen.getByLabelText('Note text'));
+  });
+
   it('creates the note when text is added: icon on the page, thread in the panel, count on the button', async () => {
     const t = await ready();
     t.addNote(50, 150, 'Check this figure');

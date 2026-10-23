@@ -45,6 +45,8 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
   const [runs, setRuns] = useState<TextRun[]>([]);
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  /** A press of the Text or Note tool, waiting for its release. */
+  const clickAt = useRef<{ tool: string; pdf: Point; screen: Point } | null>(null);
 
   // Text runs are only needed while a text-markup tool is active.
   useEffect(() => {
@@ -80,11 +82,13 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
     const pdf = toPdf(p);
     store.commitText(); // clicking anywhere finishes the text being typed
 
-    if (tool === 'text') {
-      // Clicking existing text edits it; clicking empty page starts a new box with its upper-left corner there.
-      const hit = [...annots].reverse().find((a) => a.type === 'freetext' && a.origin === 'app' && touches(a, p, pdf));
-      if (hit) store.editText(page.id, hit.id);
-      else store.beginText(page.id, pdf);
+    if (tool === 'text' || tool === 'note') {
+      // These tools open a text box, which must take keyboard focus. If it did so now, the browser would finish
+      // this very press (mousedown) by moving focus to the page, and the new box would lose it at once and be
+      // discarded. So wait for the release, when the browser is done with focus. Capture the pointer so the
+      // release is seen even if the mouse has moved off the page.
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      clickAt.current = { tool, pdf, screen: p };
       return;
     }
 
@@ -101,12 +105,6 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
         e.currentTarget.setPointerCapture?.(e.pointerId);
         setGesture({ kind: 'edit', original: hit, current: hit, from: pdf, moved: false });
       }
-      return;
-    }
-
-    if (tool === 'note') {
-      // The click is the icon's upper-left corner. The note exists once it has text (see the comments panel).
-      store.beginNote(page.id, pdf);
       return;
     }
 
@@ -149,6 +147,20 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
   };
 
   const onUp = () => {
+    const click = clickAt.current;
+    clickAt.current = null;
+    if (click && click.tool === tool) {
+      if (click.tool === 'note') {
+        // The click is the icon's upper-left corner. The note exists once it has text (see the comments panel).
+        store.beginNote(page.id, click.pdf);
+      } else {
+        // Clicking existing text edits it; clicking empty page starts a new box with its upper-left corner there.
+        const hit = [...annots].reverse().find((a) => a.type === 'freetext' && a.origin === 'app' && touches(a, click.screen, click.pdf));
+        if (hit) store.editText(page.id, hit.id);
+        else store.beginText(page.id, click.pdf);
+      }
+      return;
+    }
     const g = gesture;
     setGesture(null);
     if (!g) return;
@@ -201,7 +213,7 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
-      onPointerCancel={() => setGesture(null)}
+      onPointerCancel={() => ((clickAt.current = null), setGesture(null))}
       onDoubleClick={onDoubleClick}
     >
       {shown.map((a) => (

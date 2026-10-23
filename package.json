@@ -9,10 +9,13 @@
     "dev": "pnpm --filter @pagewright/web dev",
     "sample": "tsx packages/engine/scripts/sample.ts",
     "make-large": "tsx packages/engine/scripts/make-large.ts",
+    "e2e": "tsx e2e/run.ts",
     "gen-font-data": "tsx packages/engine/scripts/gen-font-data.ts",
     "bench-large": "tsx --expose-gc packages/engine/scripts/bench-large.ts"
   },
   "devDependencies": {
+    "@cantoo/pdf-lib": "^2.11.1",
+    "puppeteer-core": "^25.15.0",
     "tsx": "^4.23.15",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

@@ -50,6 +50,30 @@ describe('typing a new text box', () => {
     expect(t.texts()).toHaveLength(0);
   });
 
+  it('keeps focus on the new box even though the browser moves focus during the press', async () => {
+    // A real browser finishes a mouse press (mousedown) by focusing the thing clicked, or the page body when
+    // that is not focusable. If the box took focus at pointer-down, that would blur it, and a blur commits
+    // and discards an empty box: the box would vanish before anything could be typed.
+    const t = await ready();
+    t.tool('Text');
+    fireEvent.pointerDown(t.svg, { button: 0, pointerId: 1, ...px(40, 200) });
+    (document.activeElement as HTMLElement | null)?.blur(); // what mousedown does
+    fireEvent.pointerUp(t.svg, { pointerId: 1, ...px(40, 200) });
+    expect(document.activeElement).toBe(t.box());
+    t.type('still here');
+    fireEvent.keyDown(t.box(), { key: 'Enter', ctrlKey: true });
+    expect(t.texts().map((a) => a.text)).toEqual(['still here']);
+  });
+
+  it('opens nothing until the press is released', async () => {
+    const t = await ready();
+    t.tool('Text');
+    fireEvent.pointerDown(t.svg, { button: 0, pointerId: 1, ...px(40, 200) });
+    expect(screen.queryByLabelText('Text')).toBeNull();
+    fireEvent.pointerUp(t.svg, { pointerId: 1, ...px(40, 200) });
+    expect(screen.getByLabelText('Text')).toBeTruthy();
+  });
+
   it('commits with Ctrl+Enter and shows the text on the page', async () => {
     const t = await ready();
     t.addText(40, 200, 'Hello world');
