@@ -52,7 +52,10 @@ export type AnnotId = string;    // uuid; also written to the PDF /NM entry
 export interface SourceDoc {
   id: SourceId;
   name: string;
-  bytes: Uint8Array;             // never mutated
+  data: SourceData;              // never mutated; { kind: 'memory', bytes } or { kind: 'blob', blob }.
+                                 // Opened files are blob-backed (disk, not memory) and read by byte range.
+                                 // The platform copies them to private storage (OPFS) first, so saving over
+                                 // the original cannot break later lazy reads.
   pageCount: number;
   isEncrypted: boolean;
   hasDigitalSignature: boolean;
@@ -317,7 +320,11 @@ save(doc):
   8. Verify: re-open output with PDF.js headless, check page count matches. Fail loudly otherwise.
 ```
 
-Runs in a worker (`save.worker.ts`). Progress is reported per page. Memory guard: if the sum of source sizes exceeds a threshold (default 400 MB on mobile, 1.5 GB on desktop), refuse with a clear message instead of crashing.
+Runs in a worker (`save.worker.ts`). Progress is reported per page. 
+
+**Memory guard.** Opening and viewing are lazy and cheap. Saving is not: the pdf-lib pipeline loads every used source whole and builds the whole output, and measures about **4.5x the total size of the used sources** at its peak (299 MB scanned PDF: about 1.3 GB in Chrome, 1.5 GB in Node; deleting pages does not help because sources load whole). `preflight` therefore compares `SAVE_MEMORY_FACTOR x source size` with `DeviceInfo.memoryBudgetMB` (the most memory one save may use) and refuses with a message that names both numbers, instead of crashing the tab. The same check runs at open time, so a user learns at once that a document is view-and-markup only. Web budgets are derived from `navigator.deviceMemory`: 40% of it on desktop (clamped to 768 to 3072 MB), 30% on phones (512 to 1200 MB), which accepts roughly 360 MB of sources on a 4 GB desktop and 270 MB on a 4 GB phone.
+
+**Known limit.** Phones cannot save sources above about 200 to 270 MB. Lifting this needs a page-copying writer that streams raw objects by byte range instead of loading the source (a custom writer, or qpdf-wasm, which is also memory-bound at about 2x).
 
 ## 8. Platform adapters (`packages/platform`)
 
@@ -407,7 +414,7 @@ Every error maps to a user-facing message and a recovery action. Non-fatal notic
 - One annotation (highlight) with a correct `/AP`; verify in the full viewer matrix.
 - Evaluate PDF.js's built-in annotation editor vs. own overlay.
 - Open a 300 MB scanned PDF on a mid-range iPhone and Android phone; measure memory and time.
-- **Exit criteria**: highlight appears correctly in all matrix viewers; 300 MB file opens and saves without a crash; geometry tests pass on rotated and offset-CropBox pages.
+- **Exit criteria**: highlight appears correctly in all matrix viewers; a 300 MB scanned file opens, scrolls and edits without a crash on desktop and phones, and saves on devices whose budget allows it (desktop: yes; phones: refused up front with a clear message, see the known limit in section 7); geometry tests pass on rotated and offset-CropBox pages.
 
 **M1: Web v1**: Tier 1 complete; Tier 2: ink, shapes, notes/comments, freetext, stamps, signatures; policies and warnings; corpus round-trip CI.
 

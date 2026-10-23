@@ -167,9 +167,25 @@ export class IndexedDbStore implements SecureStore {
   }
 }
 
-export function webDevice(): DeviceInfo {
-  const gb = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 4;
-  return { platform: 'web', memoryBudgetMB: Math.min(1536, Math.max(256, Math.floor(gb * 1024 * 0.4))) };
+type NavigatorInfo = Pick<Navigator, 'userAgent' | 'maxTouchPoints'> & {
+  /** Chrome only; GB, rounded down to a power of two and capped at 8. */
+  deviceMemory?: number;
+  userAgentData?: { mobile?: boolean };
+};
+
+/**
+ * Browsers do not report how much memory a tab may use, so this is a conservative guess from the device's
+ * RAM: a save may use up to 40% of it on desktop and 30% on phones, which kill tabs earlier and without
+ * warning. Clamped so that tiny and huge readings stay sensible. At the 4.5x save factor this accepts source
+ * files totalling roughly 360 MB on a 4 GB desktop and 270 MB on a 4 GB phone.
+ */
+export function webDevice(nav: NavigatorInfo = navigator): DeviceInfo {
+  const mobile =
+    nav.userAgentData?.mobile ??
+    (/Android|iPhone|iPad|iPod|Mobi/i.test(nav.userAgent) || (/Macintosh/.test(nav.userAgent) && nav.maxTouchPoints > 1)); // iPadOS
+  const gb = nav.deviceMemory ?? (mobile ? 3 : 4);
+  const [fraction, min, max] = mobile ? [0.3, 512, 1200] : [0.4, 768, 3072];
+  return { platform: 'web', memoryBudgetMB: Math.round(Math.min(max, Math.max(min, gb * 1024 * fraction))) };
 }
 
 export function createWebPlatform(): Platform {

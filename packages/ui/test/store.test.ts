@@ -18,7 +18,7 @@ function fakeDoc(sourceId: string, pageCount: number): RenderDoc {
   };
 }
 
-function setup(opts: { pages?: Record<string, number>; password?: string } = {}) {
+function setup(opts: { pages?: Record<string, number>; password?: string; budgetMB?: number } = {}) {
   const saved: { name: string; bytes: Uint8Array }[] = [];
   const events: string[] = [];
   const renderer: PdfRenderer = {
@@ -37,7 +37,7 @@ function setup(opts: { pages?: Record<string, number>; password?: string } = {})
         return { write: async (bytes: Uint8Array) => (saved.push({ name, bytes }), { saved: true as const, name }) };
       }),
     },
-    device: { platform: 'web', memoryBudgetMB: 1000 },
+    device: { platform: 'web', memoryBudgetMB: opts.budgetMB ?? 1000 },
   } as unknown as Platform;
   let n = 0;
   const store = new AppStore({ renderer, writer, platform, newId: () => `id${++n}` });
@@ -129,6 +129,49 @@ describe('AppStore: blob-backed files', () => {
     const blob = new Blob(['/Type /Sig /ByteRange [0 1 2 3]']);
     await store.addFiles([{ name: 's.pdf', size: blob.size, read: async () => new Uint8Array(), blob }]);
     expect(Object.values(store.getSnapshot().doc.sources)[0]!.hasDigitalSignature).toBe(true);
+  });
+});
+
+describe('AppStore: memory guard', () => {
+  /** A blob that only claims a size: nothing is allocated, and every read returns nothing. */
+  const hugeFile = (name: string, mb: number): PickedFile => {
+    const blob = { size: mb * 1024 * 1024, slice: () => blob, arrayBuffer: async () => new ArrayBuffer(0) };
+    return { name, size: blob.size, read: async () => new Uint8Array(), blob };
+  };
+
+  it('opens a document that is too big to save, warns straight away, and refuses to save it', async () => {
+    const { store, writer } = setup({ budgetMB: 450 }); // allows 100 MB of sources
+    await store.addFiles([hugeFile('big.pdf', 150)]);
+    expect(store.getSnapshot().doc.pages).toHaveLength(3); // still viewable
+    const warning = store.getSnapshot().ui.notices.find((n) => /too large to save/.test(n));
+    expect(warning).toMatch(/up to 100 MB/);
+    expect(await store.save()).toBe(false);
+    expect(store.getSnapshot().ui.error).toMatchObject({ code: 'OutOfMemoryRisk', budgetMB: 450 });
+    expect(writer.save).not.toHaveBeenCalled();
+  });
+
+  it('does not warn about documents that fit', async () => {
+    const { store } = setup({ budgetMB: 450 });
+    await store.addFiles([hugeFile('ok.pdf', 90)]);
+    expect(store.getSnapshot().ui.notices).toEqual([]);
+    expect(await store.save()).toBe(true);
+  });
+
+  it('warns when merging pushes the total over the limit', async () => {
+    const { store } = setup({ budgetMB: 450 });
+    await store.addFiles([hugeFile('a.pdf', 60)]);
+    expect(store.getSnapshot().ui.notices.some((n) => /too large to save/.test(n))).toBe(false);
+    await store.addFiles([hugeFile('b.pdf', 60)]);
+    expect(store.getSnapshot().ui.notices.some((n) => /too large to save/.test(n))).toBe(true);
+  });
+
+  it('allows saving again once the big source is removed from the document', async () => {
+    const { store } = setup({ budgetMB: 450, pages: { 'small.pdf': 1, 'big.pdf': 1 } });
+    await store.addFiles([file('small.pdf'), hugeFile('big.pdf', 150)]);
+    expect(await store.save()).toBe(false);
+    const bigPage = store.getSnapshot().doc.pages[1]!.id;
+    store.deletePages([bigPage]);
+    expect(await store.save()).toBe(true);
   });
 });
 

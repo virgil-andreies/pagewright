@@ -45,5 +45,5 @@ it('preflight counts blob-backed sources by size', () => {
       () => 'p1',
     ),
   );
-  expect(preflight(h.current, { memoryBudgetMB: 1 }).errors).toEqual([{ code: 'OutOfMemoryRisk', estimateMB: 3 }]);
+  expect(preflight(h.current, { memoryBudgetMB: 1 }).errors).toEqual([{ code: 'OutOfMemoryRisk', estimateMB: 14, budgetMB: 1 }]);
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  History, memorySource, addAnnotation, addSource, emptyDocument, preflight, reorderAnnotation, transformQuad, rectToQuad,
+  History, SAVE_MEMORY_FACTOR, describeError, estimateSavePeakMB, maxSaveSourceMB, memorySource, addAnnotation, addSource, emptyDocument, preflight, reorderAnnotation, transformQuad, rectToQuad,
   type HighlightAnnot, type SourceDoc,
 } from '../src';
 
@@ -28,10 +28,53 @@ describe('preflight', () => {
   });
   it('refuses over the memory budget', () => {
     const r = preflight(docWith(src('a', { data: memorySource(new Uint8Array(3 * 1024 * 1024)) })), opts);
-    expect(r.errors).toEqual([{ code: 'OutOfMemoryRisk', estimateMB: 3 }]);
+    expect(r.errors).toEqual([{ code: 'OutOfMemoryRisk', estimateMB: 14, budgetMB: 1 }]); // 3 MB x 4.5
   });
   it('notes dropped outlines on merge', () => {
     expect(preflight(docWith(src('a'), src('b')), opts).notices).toContain('OutlinesDropped');
+  });
+});
+
+/** A source of the given size that costs no memory: only `size` is ever read by the guard. */
+const sized = (mb: number) =>
+  ({ kind: 'blob', blob: { size: mb * 1024 * 1024, slice: () => { throw new Error('unused'); }, arrayBuffer: async () => { throw new Error('unused'); } } }) as const;
+
+describe('save memory guard', () => {
+  it('estimates peak memory as a multiple of the source size', () => {
+    expect(SAVE_MEMORY_FACTOR).toBe(4.5);
+    expect(estimateSavePeakMB(100 * 1024 * 1024)).toBe(450);
+    expect(maxSaveSourceMB(1000)).toBe(222);
+  });
+
+  it('accepts a document exactly at the limit and refuses one just over it', () => {
+    const budget = 900; // allows 200 MB of sources
+    expect(maxSaveSourceMB(budget)).toBe(200);
+    expect(preflight(docWith(src('a', { data: sized(200) })), { memoryBudgetMB: budget }).errors).toEqual([]);
+    expect(preflight(docWith(src('a', { data: sized(201) })), { memoryBudgetMB: budget }).errors).toEqual([
+      { code: 'OutOfMemoryRisk', estimateMB: 905, budgetMB: 900 },
+    ]);
+  });
+
+  it('counts all used sources together, but not ones that no longer contribute pages', () => {
+    const doc = docWith(src('a', { data: sized(150) }), src('b', { data: sized(150) }));
+    expect(preflight(doc, { memoryBudgetMB: 900 }).errors[0]?.code).toBe('OutOfMemoryRisk');
+    const onlyA = { ...doc, pages: doc.pages.filter((p) => p.sourceId === 'a') };
+    expect(preflight(onlyA, { memoryBudgetMB: 900 }).errors).toEqual([]);
+  });
+
+  it('lets the 299 MB test file save on a desktop budget but not on a phone budget', () => {
+    const doc = docWith(src('a', { data: sized(299) }));
+    expect(preflight(doc, { memoryBudgetMB: 2400 }).errors).toEqual([]);
+    expect(preflight(doc, { memoryBudgetMB: 1000 }).errors[0]).toMatchObject({ code: 'OutOfMemoryRisk', estimateMB: 1346 });
+  });
+
+  it('explains the refusal with the numbers the user needs', () => {
+    const { message, action } = describeError({ code: 'OutOfMemoryRisk', estimateMB: 1346, budgetMB: 1000 });
+    expect(message).toContain('1346 MB');
+    expect(message).toContain('1000 MB');
+    expect(message).toContain('up to 222 MB');
+    expect(message).toMatch(/still view/);
+    expect(action).toBeTruthy();
   });
 });
 

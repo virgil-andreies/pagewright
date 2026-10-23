@@ -1,5 +1,5 @@
 import {
-  History, addAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  History, describeError, addAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
   type AnnotId, type AppError, type Command, type PageId, type Quad, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
@@ -124,6 +124,11 @@ export class AppStore {
       const source: SourceDoc = { ...base, pageCount: rd.pageCount };
       this.renderDocs.set(id, rd);
       this.history.execute(addSource(source, undefined, this.newId));
+      // Opening is lazy and always fine; saving needs far more memory. Say so now, not at Save.
+      const tooBig = preflight(this.history.current, { memoryBudgetMB: this.deps.platform.device.memoryBudgetMB }).errors.find(
+        (e) => e.code === 'OutOfMemoryRisk',
+      );
+      if (tooBig) this.notice(describeError(tooBig).message);
       if (source.isEncrypted) this.notice(`"${file.name}" is encrypted: you can view it, but it cannot be saved yet.`);
       if (this.history.current.pages.length === source.pageCount) this.patch({ currentPage: 0 });
     } catch (e) {

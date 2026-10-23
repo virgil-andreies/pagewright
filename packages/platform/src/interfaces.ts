@@ -55,7 +55,10 @@ export interface SecureStore extends KeyValueStore {}
 
 export interface DeviceInfo {
   platform: 'web' | 'desktop' | 'ios' | 'android';
-  /** Drives the save-time memory guard (spec section 7). */
+  /**
+   * The most memory one save may use at its peak. Drives the save-time guard (spec section 7): a save is
+   * refused when `SAVE_MEMORY_FACTOR` times the size of its source files exceeds this.
+   */
   memoryBudgetMB: number;
 }
 
