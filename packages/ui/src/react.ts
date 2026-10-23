@@ -1,11 +1,14 @@
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import type { PageGeometry, PageRef } from '@pagewright/core';
 import { RenderCancelled, type PageInfo, type Priority, type RenderQueue } from '@pagewright/engine';
+import type { PageRegistry } from './selection';
 import type { AppStore, Snapshot } from './store';
 
 export interface UiContextValue {
   store: AppStore;
   queue: RenderQueue;
+  /** The pages currently on screen, so a text selection can be mapped back onto them. */
+  pages: PageRegistry;
 }
 
 export const UiContext = createContext<UiContextValue | null>(null);

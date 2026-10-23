@@ -1,5 +1,5 @@
 import {
-  DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  batch, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
   type Annotation, type AnnotComment, type AnnotId, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
@@ -452,6 +452,23 @@ export class AppStore {
 
   getAuthor(): string {
     return this.author;
+  }
+
+  /** One markup per page for a selection that may span several pages, as a single undo step. */
+  addMarkups(type: MarkupType, marks: readonly { pageId: PageId; quads: Quad[] }[]): AnnotId[] {
+    const now = new Date().toISOString();
+    const made = marks
+      .filter((m) => m.quads.length > 0)
+      .map((m) => ({
+        pageId: m.pageId,
+        annot: {
+          type, id: this.newId(), pageId: m.pageId, author: this.author, createdAt: now, modifiedAt: now,
+          color: MARKUP_COLOR[type], opacity: type === 'highlight' ? 0.5 : 1, origin: 'app' as const, quads: m.quads,
+        },
+      }));
+    if (made.length === 0) return [];
+    this.history.execute(batch(type === 'highlight' ? 'Highlight text' : type === 'underline' ? 'Underline text' : 'Strike out text', made.map((x) => addAnnotation(x.annot))));
+    return made.map((x) => x.annot.id);
   }
 
   selectAnnotation(sel: { pageId: PageId; id: AnnotId } | undefined): void {

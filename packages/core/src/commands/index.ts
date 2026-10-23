@@ -161,6 +161,11 @@ export function reorderAnnotation(pageId: PageId, annotId: AnnotId, toIndex: num
   });
 }
 
+/** Several commands as one undo step, e.g. one highlight per page for a selection that spans pages. */
+export function batch(label: string, commands: readonly Command[]): Command {
+  return command(label, (d) => commands.reduce((doc, c) => c.apply(doc), d));
+}
+
 // ---- Read-only exports ----------------------------------------------------
 
 /** Extract / split: a view of the document restricted to `ids`, in document order. Save it as usual. */

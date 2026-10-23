@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  NOTE_FILL, constrainDrag, hitTest, pdfToViewport, quadBounds, resizeFreeText, resizeShape, simplifyPolyline, translateAnnotation, viewportToPdf,
-  type Annotation, type PageGeometry, type PageRef, type Point, type Quad, type Rect, type ResizeHandle, type ShapeAnnot, type TextHandle,
+  NOTE_FILL, constrainDrag, hitTest, pdfToViewport, resizeFreeText, resizeShape, simplifyPolyline, translateAnnotation, viewportToPdf,
+  type Annotation, type PageGeometry, type PageRef, type Point, type ResizeHandle, type ShapeAnnot, type TextHandle,
 } from '@pagewright/core';
-import type { TextRun } from '@pagewright/engine';
 import { useSnapshot, useUi } from '../react';
-import type { MarkupType, ShapeTool } from '../store';
+import type { ShapeTool } from '../store';
 import { AnnotationView, Handles, noteViewportRect } from './AnnotationView';
 import { TextEditor } from './TextEditor';
 
@@ -17,50 +16,43 @@ const MIN_DRAG_PX = 3;
 /** How close a click must be to count as touching an annotation. */
 const HIT_SLOP_PX = 5;
 
-const intersects = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-
-/** Text runs whose box overlaps the dragged rectangle (granularity: whole runs for now). */
-export function runsInRect(runs: readonly TextRun[], r: Rect): Quad[] {
-  return runs.filter((run) => intersects(quadBounds(run.quad), r)).map((run) => run.quad);
-}
-
 type Gesture =
-  | { kind: 'markup'; a: Point; b: Point } // viewport coordinates
-  | { kind: 'ink'; points: Point[] } // PDF coordinates from here on
+  | { kind: 'ink'; points: Point[] } // PDF coordinates
   | { kind: 'shape'; tool: ShapeTool; a: Point; b: Point; constrain: boolean }
   | { kind: 'edit'; original: Annotation; current: Annotation; from: Point; handle?: ResizeHandle | TextHandle; moved: boolean };
 
 /**
  * Our annotations are drawn here, not by PDF.js, so editing is instant and independent of the PDF
- * (spec section 5.1). Also hosts the tools' pointer input. A continuous gesture (drag, stroke, resize)
- * commits exactly one command on pointer-up (spec section 4).
+ * (spec section 5.1). The host element also receives all pointer input for the page and passes it to the
+ * active tool, and it contains the page's text layer (`children`) so that selecting text with the Select and
+ * markup tools is the browser's own selection. A continuous gesture (drag, stroke, resize) commits exactly one
+ * command on pointer-up (spec section 4).
  */
-export function AnnotationOverlay({ page, geometry, scale, width, height }: {
-  page: PageRef; geometry: PageGeometry; scale: number; width: number; height: number;
+export function AnnotationOverlay({ page, geometry, scale, width, height, children }: {
+  page: PageRef; geometry: PageGeometry; scale: number; width: number; height: number; children?: ReactNode;
 }) {
-  const { store } = useUi();
+  const { store, pages } = useUi();
   const { doc, ui } = useSnapshot();
   const annots = doc.annotations[page.id] ?? EMPTY;
   const tool = ui.activeTool;
-  const [runs, setRuns] = useState<TextRun[]>([]);
   const [gesture, setGesture] = useState<Gesture | null>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  /** Set while a press landed on an annotation, so the browser does not also start a text selection. */
+  const suppressSelection = useRef(false);
   /** A press of the Text or Note tool, waiting for its release. */
   const clickAt = useRef<{ tool: string; pdf: Point; screen: Point } | null>(null);
 
-  // Text runs are only needed while a text-markup tool is active.
+  // Let the selection code find this page: its element, and how to map screen points onto the page.
   useEffect(() => {
-    if (!MARKUP_TOOLS.includes(tool)) return;
-    const rd = store.getRenderDoc(page.sourceId);
-    let live = true;
-    rd?.getTextContent(page.sourceIndex).then((r) => live && setRuns(r), () => {});
+    if (!hostRef.current) return;
+    pages.set(page.id, { host: hostRef.current, geometry, scale });
     return () => {
-      live = false;
+      pages.delete(page.id);
     };
-  }, [store, tool, page.sourceId, page.sourceIndex]);
+  });
 
-  const local = (e: React.PointerEvent): Point => {
-    const r = svgRef.current!.getBoundingClientRect();
+  const local = (e: { clientX: number; clientY: number }): Point => {
+    const r = hostRef.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
   const toPdf = (p: Point) => viewportToPdf(geometry, scale, p);
@@ -76,7 +68,7 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
     return screen.x >= r.x - HIT_SLOP_PX && screen.x <= r.x + r.w + HIT_SLOP_PX && screen.y >= r.y - HIT_SLOP_PX && screen.y <= r.y + r.h + HIT_SLOP_PX;
   };
 
-  const onDown = (e: React.PointerEvent) => {
+  const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const p = local(e);
     const pdf = toPdf(p);
@@ -95,12 +87,15 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
     if (tool === 'select') {
       const handle = (e.target as SVGElement).dataset?.handle as ResizeHandle | TextHandle | undefined;
       if (handle && (selected?.type === 'shape' || selected?.type === 'freetext') && selected.origin === 'app') {
+        suppressSelection.current = true;
         e.currentTarget.setPointerCapture?.(e.pointerId);
         setGesture({ kind: 'edit', original: selected, current: selected, from: pdf, handle, moved: false });
         return;
       }
       const hit = [...annots].reverse().find((a) => touches(a, p, pdf));
       store.selectAnnotation(hit ? { pageId: page.id, id: hit.id } : undefined);
+      // Pressing on an annotation grabs it; pressing anywhere else is left to the browser, which starts selecting text.
+      if (hit) suppressSelection.current = true;
       if (hit && hit.origin === 'app') {
         e.currentTarget.setPointerCapture?.(e.pointerId);
         setGesture({ kind: 'edit', original: hit, current: hit, from: pdf, moved: false });
@@ -108,10 +103,10 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
       return;
     }
 
-    e.currentTarget.setPointerCapture?.(e.pointerId);
     store.selectAnnotation(undefined);
-    if (MARKUP_TOOLS.includes(tool)) setGesture({ kind: 'markup', a: p, b: p });
-    else if (tool === 'ink') setGesture({ kind: 'ink', points: [pdf] });
+    if (MARKUP_TOOLS.includes(tool)) return; // the browser selects text; the selection becomes the markup on release
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    if (tool === 'ink') setGesture({ kind: 'ink', points: [pdf] });
     else if (SHAPE_TOOLS.includes(tool)) setGesture({ kind: 'shape', tool: tool as ShapeTool, a: pdf, b: pdf, constrain: e.shiftKey });
   };
 
@@ -120,9 +115,6 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
     const p = local(e);
     const pdf = toPdf(p);
     switch (gesture.kind) {
-      case 'markup':
-        setGesture({ ...gesture, b: p });
-        break;
       case 'ink': {
         const last = gesture.points.at(-1)!;
         if (Math.hypot(pdf.x - last.x, pdf.y - last.y) * scale >= 1) setGesture({ ...gesture, points: [...gesture.points, pdf] });
@@ -147,6 +139,7 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
   };
 
   const onUp = () => {
+    suppressSelection.current = false;
     const click = clickAt.current;
     clickAt.current = null;
     if (click && click.tool === tool) {
@@ -165,13 +158,6 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
     setGesture(null);
     if (!g) return;
     switch (g.kind) {
-      case 'markup': {
-        const a = toPdf(g.a);
-        const b = toPdf(g.b);
-        const rect: Rect = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
-        store.addMarkup(tool as MarkupType, page.id, runsInRect(runs, rect));
-        break;
-      }
       case 'ink':
         store.addInk(page.id, [simplifyPolyline(g.points, 0.75 / scale)]);
         break;
@@ -197,49 +183,39 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
 
   const onDoubleClick = (e: React.MouseEvent) => {
     if (tool !== 'select') return;
-    const r = svgRef.current!.getBoundingClientRect();
-    const p = { x: e.clientX - r.left, y: e.clientY - r.top };
+    const p = local(e);
     const hit = [...annots].reverse().find((a) => a.type === 'freetext' && a.origin === 'app' && touches(a, p, toPdf(p)));
     if (hit) store.editText(page.id, hit.id);
   };
 
   return (
-    <>
-    <svg
-      ref={svgRef}
-      className={`overlay tool-${tool}`}
-      width={width}
-      height={height}
+    <div
+      ref={hostRef}
+      className={`overlay-host tool-${tool}`}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
-      onPointerCancel={() => ((clickAt.current = null), setGesture(null))}
+      onPointerCancel={() => ((clickAt.current = null), (suppressSelection.current = false), setGesture(null))}
+      onMouseDown={(e) => suppressSelection.current && e.preventDefault()}
       onDoubleClick={onDoubleClick}
     >
-      {shown.map((a) => (
-        <AnnotationView key={a.id} annot={a} geometry={geometry} scale={scale} selected={a.id === selectedId} />
-      ))}
-      {tool === 'select' && !typing && (shownSelected?.type === 'shape' || shownSelected?.type === 'freetext') && shownSelected.origin === 'app' && (
-        <Handles shape={shownSelected} geometry={geometry} scale={scale} />
-      )}
-      {draft && <AnnotationView annot={draft} geometry={geometry} scale={scale} />}
-      {ui.draftNote?.pageId === page.id && (
-        <g opacity={0.6} data-testid="draft-note">
-          <AnnotationView annot={ghostNote(ui.draftNote.position, page.id)} geometry={geometry} scale={scale} />
-        </g>
-      )}
-      {gesture?.kind === 'markup' && (
-        <rect
-          className="drag-rect"
-          x={Math.min(gesture.a.x, gesture.b.x)}
-          y={Math.min(gesture.a.y, gesture.b.y)}
-          width={Math.abs(gesture.a.x - gesture.b.x)}
-          height={Math.abs(gesture.a.y - gesture.b.y)}
-        />
-      )}
-    </svg>
-    {typing && <TextEditor key={typing.id ?? `new-${typing.position.x}-${typing.position.y}`} edit={typing} geometry={geometry} scale={scale} />}
-    </>
+      {children}
+      <svg className="overlay" width={width} height={height}>
+        {shown.map((a) => (
+          <AnnotationView key={a.id} annot={a} geometry={geometry} scale={scale} selected={a.id === selectedId} />
+        ))}
+        {tool === 'select' && !typing && (shownSelected?.type === 'shape' || shownSelected?.type === 'freetext') && shownSelected.origin === 'app' && (
+          <Handles shape={shownSelected} geometry={geometry} scale={scale} />
+        )}
+        {draft && <AnnotationView annot={draft} geometry={geometry} scale={scale} />}
+        {ui.draftNote?.pageId === page.id && (
+          <g opacity={0.6} data-testid="draft-note">
+            <AnnotationView annot={ghostNote(ui.draftNote.position, page.id)} geometry={geometry} scale={scale} />
+          </g>
+        )}
+      </svg>
+      {typing && <TextEditor key={typing.id ?? `new-${typing.position.x}-${typing.position.y}`} edit={typing} geometry={geometry} scale={scale} />}
+    </div>
   );
 }
 

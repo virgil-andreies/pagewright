@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { displaySize, type PageRef } from '@pagewright/core';
 import { geometryOf, useNearViewport, usePageInfo, usePageRender, useSnapshot, useUi } from '../react';
+import { applySelectionMarkup } from '../selection';
 import { AnnotationOverlay } from './AnnotationOverlay';
+import { TextLayer } from './TextLayer';
 
 /** CSS pixels per PDF point at zoom 1 (96 dpi / 72). */
 const BASE_SCALE = 96 / 72;
@@ -23,13 +25,17 @@ function PageView({ page, index }: { page: PageRef; index: number }) {
   return (
     <div ref={ref} className="page-view" data-index={index} style={{ width, height }} aria-label={`Page ${index + 1}`}>
       {near && <canvas ref={canvasRef} />}
-      {near && geometry && <AnnotationOverlay page={page} geometry={geometry} scale={scale} width={width} height={height} />}
+      {near && geometry && (
+        <AnnotationOverlay page={page} geometry={geometry} scale={scale} width={width} height={height}>
+          <TextLayer page={page} scale={scale} />
+        </AnnotationOverlay>
+      )}
     </div>
   );
 }
 
 export function Viewer() {
-  const { store } = useUi();
+  const { store, pages } = useUi();
   const { doc, ui } = useSnapshot();
   const scrollRef = useRef<HTMLDivElement>(null);
   const reported = useRef(0);
@@ -55,6 +61,16 @@ export function Viewer() {
     reported.current = ui.currentPage;
     scrollRef.current?.querySelectorAll<HTMLElement>('.page-view')[ui.currentPage]?.scrollIntoView({ block: 'start' });
   }, [ui.currentPage]);
+
+  // With a text-markup tool active, selecting text and releasing the mouse marks the selection.
+  useEffect(() => {
+    const onRelease = () => {
+      const tool = store.getSnapshot().ui.activeTool;
+      if (tool === 'highlight' || tool === 'underline' || tool === 'strikeout') applySelectionMarkup(store, pages, tool);
+    };
+    document.addEventListener('pointerup', onRelease);
+    return () => document.removeEventListener('pointerup', onRelease);
+  }, [store, pages]);
 
   // Ctrl + wheel zooms.
   useEffect(() => {

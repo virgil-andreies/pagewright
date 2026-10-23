@@ -1,5 +1,6 @@
 import { FONT_SIZES, type FontFamily, type RGBA } from '@pagewright/core';
 import { listThreads } from '../comments';
+import { applySelectionMarkup, hasSelection } from '../selection';
 import { useSnapshot, useUi } from '../react';
 import type { ToolId } from '../store';
 
@@ -85,7 +86,7 @@ function StyleControls() {
 }
 
 export function Toolbar() {
-  const { store } = useUi();
+  const { store, pages } = useUi();
   const { doc, ui, canUndo, canRedo, undoLabel, redoLabel } = useSnapshot();
   const hasPages = doc.pages.length > 0;
   const hasSel = ui.selection.size > 0;
@@ -118,7 +119,11 @@ export function Toolbar() {
             role="radio"
             aria-checked={ui.activeTool === t.id}
             className={ui.activeTool === t.id ? 'active' : ''}
-            onClick={() => store.setTool(t.id)}
+            onClick={() => {
+              store.setTool(t.id);
+              // Choosing a markup tool while text is selected marks that selection straight away.
+              if ((t.id === 'highlight' || t.id === 'underline' || t.id === 'strikeout') && hasSelection()) applySelectionMarkup(store, pages, t.id);
+            }}
             disabled={!hasPages}
             title={`${t.label} (${t.key})`}
           >

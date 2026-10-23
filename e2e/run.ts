@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName } from '@cantoo/pdf-lib';
+import { textWidth } from '../packages/core/src';
 import {
   SHOTS, check, chooseTool, clickButton, clickOnPage, count, doubleClickOnPage, dragOnPage, failureCount, openPdf, sleep, start, waitForDownload,
   type Session,
@@ -28,7 +29,120 @@ const focusInfo = (s: Session) =>
   });
 const attr = (s: Session, sel: string, name: string) => s.page.$eval(sel, (e, n) => Number(e.getAttribute(n)), name);
 
+
+/** Screen rectangle of `word` inside page `index`'s text layer, measured by the browser itself. */
+const wordRectOf = (s: Session, word: string, index = 0) =>
+  s.page.evaluate(
+    (w, i) => {
+      const layer = document.querySelectorAll('.page-view')[i]!.querySelector('.textLayer')!;
+      for (const span of layer.querySelectorAll('span')) {
+        const node = span.firstChild;
+        const at = span.textContent?.indexOf(w) ?? -1;
+        if (node && at >= 0) {
+          const r = document.createRange();
+          r.setStart(node, at);
+          r.setEnd(node, at + w.length);
+          const b = r.getBoundingClientRect();
+          return { x: b.x, y: b.y, w: b.width, h: b.height };
+        }
+      }
+      return null;
+    },
+    word,
+    index,
+  );
+
+/** Press at one point and release at another, moving in steps, like a person selecting text. */
+const dragSelectOf = async (s: Session, a: { x: number; y: number }, b: { x: number; y: number }) => {
+  await s.page.mouse.move(a.x, a.y);
+  await s.page.mouse.down();
+  await s.page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 4 });
+  await s.page.mouse.move(b.x, b.y, { steps: 6 });
+  await s.page.mouse.up();
+};
+
 const scenarios: Record<string, (s: Session) => Promise<void>> = {
+  async selection(s) {
+    console.log('Selecting the document text');
+    await openPdf(s.page, SAMPLE);
+    await s.page.evaluate(() => {
+      (window as unknown as { copied?: string }).copied = undefined;
+      document.addEventListener('copy', () => ((window as unknown as { copied?: string }).copied = window.getSelection()?.toString()));
+    });
+    const selected = () => s.page.evaluate(() => window.getSelection()?.toString() ?? '');
+    const copied = () => s.page.evaluate(() => (window as unknown as { copied?: string }).copied);
+    const clear = () => s.page.evaluate(() => window.getSelection()?.removeAllRanges());
+    const wordRect = (word: string, index = 0) => wordRectOf(s, word, index);
+    const dragSelect = (from: { x: number; y: number }, to: { x: number; y: number }) => dragSelectOf(s, from, to);
+    check('the page has a text layer', (await count(s.page, '.textLayer span')) > 3);
+    await chooseTool(s.page, 'Select');
+
+    const quick = (await wordRect('quick'))!;
+    await s.page.mouse.click(quick.x + quick.w / 2, quick.y + quick.h / 2, { count: 2 });
+    await sleep(100);
+    check('double-clicking a word selects it', (await selected()).trim() === 'quick', JSON.stringify(await selected()));
+    await s.page.keyboard.down('Control');
+    await s.page.keyboard.press('c');
+    await s.page.keyboard.up('Control');
+    check('Ctrl+C copies the selection', (await copied())?.trim() === 'quick', JSON.stringify(await copied()));
+
+    await clear();
+    await s.page.mouse.click(quick.x + quick.w / 2, quick.y + quick.h / 2, { count: 3 });
+    await sleep(100);
+    check('triple-clicking selects the whole line', (await selected()).includes('The quick brown fox jumps over the lazy dog.'), JSON.stringify(await selected()));
+
+    await clear();
+    const brown = (await wordRect('brown'))!;
+    const jumps = (await wordRect('jumps'))!;
+    await dragSelect({ x: brown.x + 1, y: brown.y + brown.h / 2 }, { x: jumps.x + jumps.w - 1, y: jumps.y + jumps.h / 2 });
+    check('dragging across words selects exactly them', (await selected()).trim() === 'brown fox jumps', JSON.stringify(await selected()));
+
+    await clear();
+    await chooseTool(s.page, 'Rectangle');
+    await dragSelect({ x: brown.x + 1, y: brown.y + brown.h / 2 }, { x: jumps.x + jumps.w - 1, y: jumps.y + jumps.h / 2 });
+    check('a drawing tool draws instead of selecting text', (await selected()) === '' && (await count(s.page, SHAPE)) === 1, JSON.stringify(await selected()));
+    await s.page.keyboard.press('Delete'); // remove the test rectangle (it is selected? tool is Rectangle, so use undo)
+    await ctrl(s, 'z');
+
+    // The Highlight tool: select text, release, and it is marked.
+    await chooseTool(s.page, 'Highlight');
+    const dog = (await wordRect('lazy dog'))!;
+    await dragSelect({ x: dog.x + 1, y: dog.y + dog.h / 2 }, { x: dog.x + dog.w - 1, y: dog.y + dog.h / 2 });
+    await sleep(150);
+    const polys = await s.page.$$eval(`${ANNOT} polygon`, (els) => els.map((e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; }));
+    check('releasing the mouse highlights the selected text', polys.length === 1, `${polys.length} polygons`);
+    check('and clears the selection', (await selected()) === '');
+    const p = polys[0]!;
+    const near = (a: number, b: number, tol = 2.5) => Math.abs(a - b) <= tol;
+    check('the highlight sits exactly on the selected words', near(p.x, dog.x) && near(p.w, dog.w) && near(p.y, dog.y, 3) && near(p.h, dog.h, 3), `${JSON.stringify(p)} vs ${JSON.stringify(dog)}`);
+    await s.page.screenshot({ path: resolve(SHOTS, 'selection-highlight.png') });
+
+    // Choosing a markup tool while text is selected applies it at once.
+    await chooseTool(s.page, 'Select');
+    const fox = (await wordRect('fox'))!;
+    await s.page.mouse.click(fox.x + fox.w / 2, fox.y + fox.h / 2, { count: 2 });
+    await clickButton(s.page, 'Underline');
+    await sleep(150);
+    check('choosing Underline with text selected underlines it', (await count(s.page, `${ANNOT} line`)) >= 1);
+
+    await ctrl(s, 'z');
+    await ctrl(s, 'z');
+    check('each is one undo step', (await count(s.page, ANNOT)) === 0, `${await count(s.page, ANNOT)} left`);
+
+    // A rotated page (page 3 shows upside down): the highlight must still land on the selected text.
+    await (await s.page.$$('.thumb'))[2]!.click();
+    await sleep(500);
+    const first = await wordRect('quick brown', 2);
+    check('the rotated page has selectable text too', first !== null);
+    if (first) {
+      await chooseTool(s.page, 'Highlight');
+      await dragSelect({ x: first.x + 1, y: first.y + first.h / 2 }, { x: first.x + first.w - 1, y: first.y + first.h / 2 });
+      await sleep(150);
+      const rp = await s.page.$$eval(`.page-view:nth-of-type(3) ${ANNOT} polygon`, (els) => els.map((e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; }));
+      check('on a rotated page the highlight sits on the selected words', rp.length === 1 && near(rp[0]!.x, first.x) && near(rp[0]!.w, first.w) && near(rp[0]!.y, first.y, 3), `${JSON.stringify(rp)} vs ${JSON.stringify(first)}`);
+    }
+  },
+
   async text(s) {
     console.log('Text tool');
     await openPdf(s.page, SAMPLE);
@@ -170,6 +284,10 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await typeText(s, 'Saved note');
     await clickButton(s.page, 'Add note');
     await sleep(200);
+    await chooseTool(s.page, 'Highlight');
+    const word = (await wordRectOf(s, 'lazy dog'))!;
+    await dragSelectOf(s, { x: word.x + 1, y: word.y + word.h / 2 }, { x: word.x + word.w - 1, y: word.y + word.h / 2 });
+    await sleep(150);
 
     const original = await PDFDocument.load(readFileSync(SAMPLE));
     const subtypes = (doc: PDFDocument, page = 0) => {
@@ -184,7 +302,7 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     const saved = await PDFDocument.load(readFileSync(file));
     check('the saved file has all five pages', saved.getPageCount() === 5);
     const after = subtypes(saved);
-    check('the original annotations are kept and the five new ones added', after.length === startCount + 5, `${startCount} -> ${after.length}: ${after.join(',')}`);
+    check('the original annotations are kept and the six new ones added', after.length === startCount + 6, `${startCount} -> ${after.length}: ${after.join(',')}`);
     for (const t of ['FreeText', 'Square', 'Ink', 'Line']) check(`the saved page has a ${t} annotation`, after.includes(t));
     const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
     const contents = annots.asArray().map((_, i) => {
@@ -192,6 +310,17 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
       return c instanceof PDFHexString ? c.decodeText() : '';
     });
     check('the text box and note texts are in the file', contents.includes('Saved text box') && contents.includes('Saved note'), JSON.stringify(contents));
+    // The highlight made by selecting text must be saved exactly where that text is on the page.
+    const quads = annots.asArray().flatMap((_, i) => {
+      const a = annots.lookup(i, PDFDict);
+      if ((a.lookup(PDFName.of('Subtype')) as PDFName).decodeText() !== 'Highlight') return [];
+      const q = a.lookup(PDFName.of('QuadPoints'), PDFArray).asArray().map((n) => Number(n.toString()));
+      return [{ x: Math.min(q[0]!, q[2]!, q[4]!, q[6]!), right: Math.max(q[0]!, q[2]!, q[4]!, q[6]!), bottom: Math.min(q[1]!, q[3]!, q[5]!, q[7]!), top: Math.max(q[1]!, q[3]!, q[5]!, q[7]!) }];
+    });
+    // Page 1 of the sample sets "The quick brown fox jumps over the lazy dog." in Helvetica 18 at x = 72, baseline y = 660.
+    const lead = textWidth('sans', 'The quick brown fox jumps over the ', 18);
+    const lazy = quads.find((q) => Math.abs(q.x - (72 + lead)) < 3);
+    check('the highlight from selected text is saved on those words', !!lazy && Math.abs(lazy.right - lazy.x - textWidth('sans', 'lazy dog', 18)) < 3 && lazy.bottom < 660 && lazy.top > 660, JSON.stringify(quads));
     await s.page.screenshot({ path: resolve(SHOTS, 'saved.png') });
   },
 };

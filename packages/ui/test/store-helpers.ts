@@ -11,7 +11,7 @@ export function file(name: string, content = 'x'): PickedFile {
 export function fakeDoc(sourceId: string, pageCount: number): RenderDoc {
   return {
     sourceId, pageCount, destroy() {}, renderPage: async () => {}, getTextContent: async () => [],
-    getExistingAnnotations: async () => [],
+    getExistingAnnotations: async () => [], renderTextLayer: async () => {},
     getPageInfo: async () => ({
       width: 100, height: 100, rotation: 0, mediaBox: { x: 0, y: 0, w: 100, h: 100 }, cropBox: { x: 0, y: 0, w: 100, h: 100 }, userUnit: 1,
     }),

@@ -30,7 +30,7 @@ export function setup(pageCount = 3) {
     open: async (s) =>
       ({
         sourceId: s.id, pageCount, destroy() {}, renderPage, getPageInfo: async () => info,
-        getTextContent: async () => [], getExistingAnnotations: async () => [],
+        getTextContent: async () => [], getExistingAnnotations: async () => [], renderTextLayer: async () => {},
       }) satisfies RenderDoc,
   };
   const writer: PdfWriter = { save: vi.fn(async () => new Uint8Array([1])) };

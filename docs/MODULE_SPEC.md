@@ -203,7 +203,8 @@ export interface RenderDoc {
   readonly sourceId: SourceId;
   getPageInfo(index: number): Promise<PageInfo>;
   renderPage(index: number, opts: RenderOpts, signal?: AbortSignal): Promise<RenderResult>;
-  getTextContent(index: number): Promise<TextRun[]>;     // for text markup hit-testing
+  getTextContent(index: number): Promise<TextRun[]>;     // raw text runs (search, later)
+  renderTextLayer(index: number, opts: TextLayerOpts, signal?: AbortSignal): Promise<void>; // selectable text over the page
   getExistingAnnotations(index: number): Promise<ImportedAnnotMeta[]>;
   destroy(): void;
 }
@@ -369,7 +370,7 @@ Large byte arrays are transferred, not copied. Sources are held once in the main
 
 - `AppShell`: toolbar, panels, responsive layout (desktop: sidebar + canvas; mobile: bottom sheet).
 - `PageGrid`: virtualized thumbnails; drag-reorder (pointer events, touch-safe); multi-select; context actions.
-- `Viewer`: continuous scroll, zoom/pinch, per-page layers: canvas -> text layer -> annotation overlay.
+- `Viewer`: continuous scroll, zoom/pinch, per-page layers: canvas -> text layer -> annotation overlay. The text layer is PDF.js's own, so selecting, double/triple-clicking and copying text is the browser's native selection. It takes the mouse only for the Select and text-markup tools (drawing, note and text tools need the click). A text-markup tool turns the selection into annotations when the mouse is released (or when the tool is chosen while text is selected): the browser's per-fragment rectangles are de-duplicated and merged into one quad per line, assigned to the page that contains them, and mapped to PDF space with that page's geometry; a selection spanning pages is one undo step.
 - `AnnotationOverlay`: renders model annotations, handles tool input; one `Tool` class per annotation type:
   ```ts
   interface Tool {

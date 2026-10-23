@@ -13,6 +13,13 @@ export interface RenderDoc {
   getPageInfo(index: number): Promise<PageInfo>;
   renderPage(index: number, opts: RenderOpts, signal?: AbortSignal): Promise<void>;
   getTextContent(index: number): Promise<TextRun[]>;
+  /**
+   * Fills `opts.container` with a transparent, selectable copy of the page's text, positioned exactly over the
+   * rendered page, so the browser can select and copy it. Replaces whatever the container held. The caller
+   * supplies the stylesheet (see the `.textLayer` rules in the ui package) and a container that is positioned
+   * over the page at the same size as the canvas.
+   */
+  renderTextLayer(index: number, opts: TextLayerOpts, signal?: AbortSignal): Promise<void>;
   getExistingAnnotations(index: number): Promise<ImportedAnnotMeta[]>;
   destroy(): void;
 }
@@ -32,6 +39,13 @@ export interface RenderOpts {
   extraRotation: Rotation;
   withAnnotations: 'none' | 'source';
   target: HTMLCanvasElement | OffscreenCanvas;
+}
+
+export interface TextLayerOpts {
+  /** CSS pixels per point: the same value the canvas is rendered at, before devicePixelRatio. */
+  scale: number;
+  extraRotation: Rotation;
+  container: HTMLElement;
 }
 
 export interface TextRun {

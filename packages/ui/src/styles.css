@@ -61,17 +61,44 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 /* Viewer */
 .viewer { height: 100%; overflow: auto; background: var(--canvas-bg); padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .page-view { position: relative; flex: none; background: #fff; box-shadow: var(--page-shadow); }
-/* The page is a canvas with an SVG overlay: there is no page text to select. Without this, dragging with a tool starts a native text selection (highlighting our own annotation text), and pressing on that selection starts a drag-and-drop that cancels the gesture. */
+/* Nothing in the viewer is selectable except the page's own text layer (below). Without this, dragging with a tool selects our annotation text, and pressing on a selection starts a drag-and-drop that cancels the gesture. */
 .viewer { -webkit-user-select: none; user-select: none; }
 .viewer .text-editor { -webkit-user-select: text; user-select: text; }
 .page-view canvas { display: block; }
-.overlay { position: absolute; inset: 0; }
-.overlay { touch-action: pan-y pinch-zoom; }
-.overlay:is(.tool-highlight, .tool-underline, .tool-strikeout, .tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow, .tool-note, .tool-text) { cursor: crosshair; touch-action: none; }
+
+/* Layers of a page, bottom to top: canvas, text layer, annotation SVG. The host covers the page and receives its pointer input. */
+.overlay-host { position: absolute; inset: 0; touch-action: pan-y pinch-zoom; }
+.overlay-host:is(.tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow, .tool-note, .tool-text) { cursor: crosshair; touch-action: none; }
+.overlay-host:is(.tool-highlight, .tool-underline, .tool-strikeout) { cursor: text; }
+.overlay { position: absolute; inset: 0; pointer-events: none; }
 .overlay .annot { pointer-events: none; }
-.handle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; cursor: nwse-resize; }
+.handle { pointer-events: all; fill: var(--surface); stroke: var(--accent); stroke-width: 2; cursor: nwse-resize; }
+
+/* The text layer only takes the mouse when the user is selecting text. With a drawing tool it must not get in the way. */
+.textLayer { pointer-events: none; }
+.overlay-host:is(.tool-select, .tool-highlight, .tool-underline, .tool-strikeout) .textLayer { pointer-events: auto; }
+
+/* Text layer rules adapted from PDF.js (web/pdf_viewer.css, Apache-2.0): transparent, absolutely positioned text that the browser can select. */
+.textLayer {
+  position: absolute; inset: 0; overflow: clip; text-align: initial; line-height: 1; letter-spacing: normal; word-spacing: normal;
+  -webkit-text-size-adjust: none; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; z-index: 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; -webkit-user-select: text; user-select: text; }
+.textLayer > :not(.markedContent), .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer .markedContent { display: contents; }
+.textLayer span[role='img'] { -webkit-user-select: none; user-select: none; cursor: default; }
+.textLayer ::selection { background: rgb(0 0 255 / 0.25); background: color-mix(in srgb, AccentColor, transparent 50%); color: transparent; }
+.textLayer br::selection { background: transparent; }
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; -webkit-user-select: none; user-select: none; }
+.textLayer.selecting .endOfContent { top: 0; }
+
 .selection-outline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 2; }
-.drag-rect { fill: color-mix(in srgb, var(--accent) 15%, transparent); stroke: var(--accent); stroke-width: 1; }
 .empty-state { margin: auto; text-align: center; color: var(--muted); }
 .empty-state .hint { font-size: 13px; }
 

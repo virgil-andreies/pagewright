@@ -1,7 +1,7 @@
 import type { Quad, Rect, Rotation, SourceDoc } from '@pagewright/core';
 import { memorySource, normalizeRotation, readRange, sourceSize } from '@pagewright/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { ImportedAnnotMeta, PageInfo, PdfRenderer, RenderDoc, RenderOpts, TextRun } from './types';
+import type { ImportedAnnotMeta, PageInfo, PdfRenderer, RenderDoc, RenderOpts, TextLayerOpts, TextRun } from './types';
 import { AppFailure } from './writer';
 
 type PdfjsModule = typeof import('pdfjs-dist');
@@ -60,7 +60,7 @@ export class PdfJsRenderer implements PdfRenderer {
       ...(this.opts.standardFontDataUrl ? { standardFontDataUrl: this.opts.standardFontDataUrl } : {}),
     });
     try {
-      return new PdfJsDoc(source.id, await task.promise);
+      return new PdfJsDoc(source.id, await task.promise, pdfjs);
     } catch (e) {
       const err = e as { name?: string; code?: number; message?: string };
       if (err.name === 'PasswordException') {
@@ -78,7 +78,7 @@ export class PdfJsRenderer implements PdfRenderer {
 class PdfJsDoc implements RenderDoc {
   readonly pageCount: number;
 
-  constructor(readonly sourceId: string, private readonly doc: PDFDocumentProxy) {
+  constructor(readonly sourceId: string, private readonly doc: PDFDocumentProxy, private readonly pdfjs: PdfjsModule) {
     this.pageCount = doc.numPages;
   }
 
@@ -120,6 +120,26 @@ class PdfJsDoc implements RenderDoc {
     } finally {
       signal?.removeEventListener('abort', onAbort);
       page.cleanup();
+    }
+  }
+
+  async renderTextLayer(index: number, opts: TextLayerOpts, signal?: AbortSignal): Promise<void> {
+    const page = await this.doc.getPage(index + 1);
+    const viewport = page.getViewport({ scale: opts.scale, rotation: normalizeRotation(page.rotate + opts.extraRotation) });
+    const { container } = opts;
+    container.replaceChildren();
+    // The text layer sizes everything from these (see pdf_viewer.css).
+    container.style.setProperty('--total-scale-factor', String(opts.scale));
+    container.style.setProperty('--scale-round-x', '1px');
+    container.style.setProperty('--scale-round-y', '1px');
+    const layer = new this.pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container, viewport });
+    const onAbort = () => layer.cancel();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      if (signal?.aborted) onAbort();
+      await layer.render();
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
     }
   }
 

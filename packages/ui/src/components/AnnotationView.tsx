@@ -30,7 +30,9 @@ export function AnnotationView({ annot, geometry, scale, selected }: ViewProps &
   let body: React.ReactNode = null;
   switch (annot.type) {
     case 'highlight':
-      body = annot.quads.map((q, i) => <polygon key={i} points={quad(q)} fill={stroke} style={{ mixBlendMode: 'multiply' }} />);
+      // Opacity goes on the polygon, not on the group: a group with opacity is isolated, and then the multiply blend
+      // would only blend with the group itself instead of the page underneath (text would be tinted, not kept dark).
+      body = annot.quads.map((q, i) => <polygon key={i} points={quad(q)} fill={stroke} fillOpacity={opacity} style={{ mixBlendMode: 'multiply' }} />);
       break;
     case 'underline':
     case 'strikeout':
@@ -73,7 +75,7 @@ export function AnnotationView({ annot, geometry, scale, selected }: ViewProps &
     outline = { x: Math.min(a.x, c.x), y: Math.min(a.y, c.y), w: Math.abs(a.x - c.x), h: Math.abs(a.y - c.y) };
   }
   return (
-    <g data-annot-id={annot.id} className={`annot${selected ? ' selected' : ''}`} opacity={opacity}>
+    <g data-annot-id={annot.id} className={`annot${selected ? ' selected' : ''}`} opacity={annot.type === 'highlight' ? undefined : opacity}>
       {body}
       {selected && (
         <rect className="selection-outline" x={outline.x - 2} y={outline.y - 2} width={outline.w + 4} height={outline.h + 4} />

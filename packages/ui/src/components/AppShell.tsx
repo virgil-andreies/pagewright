@@ -10,7 +10,7 @@ import { Viewer } from './Viewer';
 import '../styles.css';
 
 export function PagewrightProvider({ store, children }: { store: AppStore; children: ReactNode }) {
-  const value = useMemo(() => ({ store, queue: new RenderQueue({ concurrency: 2 }) }), [store]);
+  const value = useMemo(() => ({ store, queue: new RenderQueue({ concurrency: 2 }), pages: new Map() }), [store]);
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>;
 }
 
