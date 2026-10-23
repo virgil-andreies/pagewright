@@ -1,6 +1,7 @@
 import {
-  NOTE_ICON_LINE, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, pdfToViewport, quadBounds, shapeHandles,
-  type Annotation, type NoteAnnot, type PageGeometry, type Point, type Quad, type RGBA, type ShapeAnnot,
+  BASELINE_RATIO, NOTE_ICON_LINE, NOTE_INK, NOTE_SIZE, TEXT_PADDING, annotationBounds, arrowHead, effectiveRotation, freeTextHandles,
+  freeTextLines, lineAdvance, noteIcon, pdfToViewport, quadBounds, shapeHandles, textWidth,
+  type Annotation, type FontFamily, type FreeTextAnnot, type NoteAnnot, type PageGeometry, type Point, type Quad, type RGBA, type ShapeAnnot,
 } from '@pagewright/core';
 
 export const rgb = (c: { r: number; g: number; b: number }) =>
@@ -54,6 +55,9 @@ export function AnnotationView({ annot, geometry, scale, selected }: ViewProps &
     case 'note':
       body = <NoteBody note={annot} vp={vp} scale={scale} />;
       break;
+    case 'freetext':
+      body = <FreeTextBody text={annot} geometry={geometry} scale={scale} />;
+      break;
     default:
       break; // notes, free text and stamps arrive with their own views
   }
@@ -85,6 +89,47 @@ export function AnnotationView({ annot, geometry, scale, selected }: ViewProps &
 export function noteViewportRect(note: NoteAnnot, vp: (p: Point) => Point, scale: number) {
   const a = vp(note.position);
   return { x: a.x, y: a.y, w: NOTE_SIZE * scale, h: NOTE_SIZE * scale };
+}
+
+/** CSS stacks that map to the same metrics as the PDF standard fonts (Arial is metric-compatible with Helvetica). */
+export const FONT_STACKS: Record<FontFamily, string> = {
+  sans: 'Helvetica, Arial, "Liberation Sans", sans-serif',
+  serif: '"Times New Roman", Times, "Liberation Serif", serif',
+  mono: '"Courier New", Courier, "Liberation Mono", monospace',
+};
+
+/**
+ * Free text uses the shared layout, so the lines break exactly where they will in the saved PDF. Each line
+ * is stretched to its PDF width (`textLength`), so even if the browser substitutes a different font the
+ * text occupies the same space as the saved page. The text turns with the page, like any PDF annotation
+ * without the NoRotate flag.
+ */
+function FreeTextBody({ text, geometry, scale }: { text: FreeTextAnnot; geometry: PageGeometry; scale: number }) {
+  const anchor = pdfToViewport(geometry, scale, { x: text.rect.x, y: text.rect.y + text.rect.h });
+  const rotation = effectiveRotation(geometry);
+  return (
+    <g
+      transform={`translate(${anchor.x} ${anchor.y}) rotate(${rotation}) scale(${scale})`}
+      fill={rgb(text.color)}
+      fontFamily={FONT_STACKS[text.fontFamily]}
+      fontSize={text.fontSize}
+      style={{ whiteSpace: 'pre' }}
+    >
+      {freeTextLines(text).map((line, i) =>
+        line === '' ? null : (
+          <text
+            key={i}
+            x={TEXT_PADDING}
+            y={TEXT_PADDING + BASELINE_RATIO * text.fontSize + i * lineAdvance(text.fontSize)}
+            textLength={textWidth(text.fontFamily, line, text.fontSize)}
+            lengthAdjust="spacing"
+          >
+            {line}
+          </text>
+        ),
+      )}
+    </g>
+  );
 }
 
 function NoteBody({ note, vp, scale }: { note: NoteAnnot; vp: (p: Point) => Point; scale: number }) {
@@ -135,11 +180,12 @@ function ShapeBody({ shape: s, vp, scale }: { shape: ShapeAnnot; vp: (p: Point) 
   );
 }
 
-/** Resize handles for a selected shape. They carry `data-handle` so the overlay can tell them apart. */
-export function Handles({ shape, geometry, scale }: ViewProps & { shape: ShapeAnnot }) {
+/** Resize handles for a selected shape or text box. They carry `data-handle` so the overlay can tell them apart. */
+export function Handles({ shape, geometry, scale }: ViewProps & { shape: ShapeAnnot | FreeTextAnnot }) {
+  const handles = shape.type === 'freetext' ? freeTextHandles(shape) : shapeHandles(shape);
   return (
     <>
-      {shapeHandles(shape).map((h) => {
+      {handles.map((h) => {
         const v = pdfToViewport(geometry, scale, h.at);
         return <circle key={h.id} className="handle" data-handle={h.id} cx={v.x} cy={v.y} r={6} />;
       })}

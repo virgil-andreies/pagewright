@@ -1,5 +1,5 @@
-import type { InkAnnot, NoteAnnot, Point, Quad, RGBA, ShapeAnnot, TextMarkupAnnot } from '@pagewright/core';
-import { NOTE_ICON_LINE, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, quadBounds } from '@pagewright/core';
+import type { FontFamily, FreeTextAnnot, InkAnnot, NoteAnnot, Point, Quad, RGBA, ShapeAnnot, TextMarkupAnnot } from '@pagewright/core';
+import { BASELINE_RATIO, NOTE_ICON_LINE, TEXT_PADDING, freeTextLines, lineAdvance, toWinAnsi, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, quadBounds } from '@pagewright/core';
 
 /** A Form XObject description, independent of pdf-lib so it can be unit tested as plain data. */
 export interface AppearanceStream {
@@ -10,6 +10,8 @@ export interface AppearanceStream {
   multiply: boolean;
   /** Constant opacity applied through ExtGState /ca and /CA. */
   opacity: number;
+  /** A standard font the content refers to as /F1; the writer adds it to the stream's resources. */
+  font?: FontFamily;
 }
 
 const n = (v: number) => {
@@ -169,4 +171,22 @@ export function buildNoteAppearance(a: NoteAnnot): AppearanceStream {
     multiply: false,
     opacity: a.opacity * a.color.a,
   };
+}
+
+const hex = (bytes: Uint8Array) => `<${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase()}>`;
+
+/**
+ * Free text: each wrapped line is positioned absolutely, so the saved page matches the editor line for line.
+ * Text is encoded as WinAnsi and shown with one of the standard fonts (/F1), which the writer supplies.
+ */
+export function buildFreeTextAppearance(a: FreeTextAnnot): AppearanceStream {
+  const { x, y, w, h } = a.rect;
+  const ops = ['BT', `/F1 ${n(a.fontSize)} Tf`, `${rgb(a.color)} rg`];
+  freeTextLines(a).forEach((line, i) => {
+    if (line === '') return;
+    const baseline = y + h - TEXT_PADDING - BASELINE_RATIO * a.fontSize - i * lineAdvance(a.fontSize);
+    ops.push(`1 0 0 1 ${n(x + TEXT_PADDING)} ${n(baseline)} Tm`, `${hex(toWinAnsi(line))} Tj`);
+  });
+  ops.push('ET');
+  return { bbox: [x, y, x + w, y + h], content: ops.join('\n'), multiply: false, opacity: a.opacity * a.color.a, font: a.fontFamily };
 }

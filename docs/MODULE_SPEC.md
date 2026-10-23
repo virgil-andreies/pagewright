@@ -275,7 +275,7 @@ Annotation mapping:
 | shape rect/ellipse | /Square, /Circle | stroke and optional fill |
 | shape line/arrow | /Line | `/LE` for arrow end |
 | note | /Text | standard icon drawn in AP |
-| freetext | /FreeText | embedded font via fontkit; wrapped text in AP |
+| freetext | /FreeText | standard PDF font (Helvetica, Times or Courier, WinAnsi); wrapped text in AP; `/C` left out (it would be drawn as a background); `/Contents` is the text |
 | stamp | /Stamp | image XObject or vector paths in AP |
 
 Common entries on every annotation: `/Rect`, `/F` (print flag = 4), `/NM` (annot id), `/T` (author), `/M`, `/CreationDate`, `/C`, `/CA`, `/Contents` (comment text). Replies are `/Text` annotations with `/IRT` pointing at the parent and `/RT /R`.
@@ -422,7 +422,7 @@ Every error maps to a user-facing message and a recovery action. Non-fatal notic
 
 **M3: Mobile**: Capacitor shell, share target / "Open in", memory tuning, touch/stylus polish, store submission.
 
-**M4 (v1.1 candidates)**: encrypted save via qpdf-wasm, outline preservation on merge, editing imported annotations, page dedupe on duplicate, form filling.
+**M4 (v1.1 candidates)**: Unicode free text (embed a font via fontkit and measure with it; v1 supports only the characters of the standard fonts, so Cyrillic, Greek, CJK and RTL text becomes `?`), encrypted save via qpdf-wasm, outline preservation on merge, editing imported annotations, page dedupe on duplicate, form filling.
 
 ## 14. Key risks and owners
 

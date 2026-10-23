@@ -1,4 +1,4 @@
-import type { RGBA } from '@pagewright/core';
+import { FONT_SIZES, type FontFamily, type RGBA } from '@pagewright/core';
 import { listThreads } from '../comments';
 import { useSnapshot, useUi } from '../react';
 import type { ToolId } from '../store';
@@ -14,6 +14,7 @@ const TOOLS: { id: ToolId; label: string; key: string }[] = [
   { id: 'line', label: 'Line', key: 'L' },
   { id: 'arrow', label: 'Arrow', key: 'A' },
   { id: 'note', label: 'Note', key: 'N' },
+  { id: 'text', label: 'Text', key: 'T' },
 ];
 
 export const SWATCHES: { name: string; color: RGBA }[] = [
@@ -27,15 +28,25 @@ export const WIDTHS = [1, 2, 4, 8];
 
 const sameColor = (a: RGBA, b: RGBA) => a.r === b.r && a.g === b.g && a.b === b.b;
 const DRAWING: readonly string[] = ['ink', 'rect', 'ellipse', 'line', 'arrow'];
+const FAMILIES: { id: FontFamily; label: string }[] = [
+  { id: 'sans', label: 'Sans' },
+  { id: 'serif', label: 'Serif' },
+  { id: 'mono', label: 'Mono' },
+];
 
-/** Colour and line width. Shown while a drawing tool is active or an ink/shape annotation is selected. */
+/**
+ * Colour and line width (or, for text, font and size). Shown while a drawing or text tool is active, or when
+ * an ink, shape or text annotation is selected. Changing it also restyles the selection.
+ */
 function StyleControls() {
   const { store } = useUi();
   const { doc, ui } = useSnapshot();
   const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id);
-  const styled = sel && (sel.type === 'ink' || sel.type === 'shape') ? sel : undefined;
-  if (!styled && !DRAWING.includes(ui.activeTool)) return null;
+  const styled = sel && (sel.type === 'ink' || sel.type === 'shape' || sel.type === 'freetext') ? sel : undefined;
+  const textual = styled ? styled.type === 'freetext' : ui.activeTool === 'text';
+  if (!styled && !DRAWING.includes(ui.activeTool) && ui.activeTool !== 'text') return null;
   const current = styled ?? ui.drawStyle;
+  const font = styled?.type === 'freetext' ? styled : ui.drawStyle;
 
   return (
     <div className="group style" aria-label="Line style">
@@ -49,11 +60,26 @@ function StyleControls() {
           onClick={() => store.setDrawStyle({ color: s.color })}
         />
       ))}
-      {WIDTHS.map((w) => (
-        <button key={w} aria-label={`Width ${w}`} aria-pressed={current.width === w} onClick={() => store.setDrawStyle({ width: w })}>
-          {w}
-        </button>
-      ))}
+      {textual
+        ? (
+          <>
+            {FAMILIES.map((f) => (
+              <button key={f.id} aria-label={`Font ${f.label}`} aria-pressed={font.fontFamily === f.id} onClick={() => store.setDrawStyle({ fontFamily: f.id })}>
+                {f.label}
+              </button>
+            ))}
+            <select aria-label="Font size" value={font.fontSize} onChange={(e) => store.setDrawStyle({ fontSize: Number(e.target.value) })}>
+              {[...FONT_SIZES, ...(FONT_SIZES.includes(font.fontSize as never) ? [] : [font.fontSize])].sort((a, b) => a - b).map((s) => (
+                <option key={s} value={s}>{s} pt</option>
+              ))}
+            </select>
+          </>
+        )
+        : WIDTHS.map((w) => (
+          <button key={w} aria-label={`Width ${w}`} aria-pressed={'width' in current && current.width === w} onClick={() => store.setDrawStyle({ width: w })}>
+            {w}
+          </button>
+        ))}
     </div>
   );
 }

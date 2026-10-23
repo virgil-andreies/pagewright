@@ -9,6 +9,7 @@
     "dev": "pnpm --filter @pagewright/web dev",
     "sample": "tsx packages/engine/scripts/sample.ts",
     "make-large": "tsx packages/engine/scripts/make-large.ts",
+    "gen-font-data": "tsx packages/engine/scripts/gen-font-data.ts",
     "bench-large": "tsx --expose-gc packages/engine/scripts/bench-large.ts"
   },
   "devDependencies": {

@@ -15,7 +15,7 @@ export function PagewrightProvider({ store, children }: { store: AppStore; child
 }
 
 const TOOL_KEYS: Record<string, ToolId> = {
-  v: 'select', h: 'highlight', u: 'underline', s: 'strikeout', p: 'ink', r: 'rect', e: 'ellipse', l: 'line', a: 'arrow', n: 'note',
+  v: 'select', h: 'highlight', u: 'underline', s: 'strikeout', p: 'ink', r: 'rect', e: 'ellipse', l: 'line', a: 'arrow', n: 'note', t: 'text',
 };
 
 function useShortcuts(store: AppStore) {
@@ -35,6 +35,13 @@ function useShortcuts(store: AppStore) {
       } else if (!mod && (k === 'delete' || k === 'backspace')) {
         if (store.getSnapshot().ui.selectedAnnot) store.deleteSelectedAnnotation();
         else store.deletePages();
+      } else if (!mod && k === 'enter' && store.getSnapshot().ui.selectedAnnot) {
+        // Enter on a selected text box edits it.
+        const sel = store.getSnapshot().ui.selectedAnnot!;
+        if (store.getSnapshot().doc.annotations[sel.pageId]?.some((a) => a.id === sel.id && a.type === 'freetext')) {
+          e.preventDefault();
+          store.editText(sel.pageId, sel.id);
+        }
       } else if (k === 'escape') {
         store.selectAnnotation(undefined);
         store.clearSelection();

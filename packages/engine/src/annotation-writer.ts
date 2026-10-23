@@ -1,9 +1,9 @@
-import { annotationBounds, NOTE_SIZE, type Annotation, type InkAnnot, type NoteAnnot, type RGBA, type ShapeAnnot } from '@pagewright/core';
+import { annotationBounds, NOTE_SIZE, type Annotation, type FontFamily, type FreeTextAnnot, type InkAnnot, type NoteAnnot, type RGBA, type ShapeAnnot } from '@pagewright/core';
 import {
   PDFArray, PDFBool, PDFDict, PDFHexString, PDFName, PDFString,
   type PDFDocument, type PDFPage, type PDFRef,
 } from '@cantoo/pdf-lib';
-import { buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
+import { buildFreeTextAppearance, buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
 
 export interface WriteContext {
   pdf: PDFDocument;
@@ -34,6 +34,26 @@ export function pdfDate(iso: string): string {
   return `D:${d.toISOString().replace(/[-:T]/g, '').slice(0, 14)}Z`;
 }
 
+const FONTS: Record<FontFamily, { base: string; da: string }> = {
+  sans: { base: 'Helvetica', da: 'Helv' },
+  serif: { base: 'Times-Roman', da: 'TiRo' },
+  mono: { base: 'Courier', da: 'Cour' },
+};
+
+/** One font object per family per document, shared by every annotation that uses it. */
+const fontRefs = new WeakMap<PDFDocument, Map<FontFamily, PDFRef>>();
+
+function standardFont(pdf: PDFDocument, family: FontFamily): PDFRef {
+  let perDoc = fontRefs.get(pdf);
+  if (!perDoc) fontRefs.set(pdf, (perDoc = new Map()));
+  let ref = perDoc.get(family);
+  if (!ref) {
+    ref = pdf.context.register(pdf.context.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: FONTS[family].base, Encoding: 'WinAnsiEncoding' }));
+    perDoc.set(family, ref);
+  }
+  return ref;
+}
+
 function registerAppearance(ctx: WriteContext, ap: AppearanceStream): PDFRef {
   const { context } = ctx.pdf;
   const gs = context.obj({
@@ -47,7 +67,10 @@ function registerAppearance(ctx: WriteContext, ap: AppearanceStream): PDFRef {
     Subtype: 'Form',
     FormType: 1,
     BBox: ap.bbox,
-    Resources: context.obj({ ExtGState: context.obj({ GS: gs }) }),
+    Resources: context.obj({
+      ExtGState: context.obj({ GS: gs }),
+      ...(ap.font ? { Font: context.obj({ F1: standardFont(ctx.pdf, ap.font) }) } : {}),
+    }),
   });
   return context.register(stream);
 }
@@ -98,6 +121,8 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
         return this.writeShape(ctx, annot);
       case 'note':
         return this.writeNote(ctx, annot);
+      case 'freetext':
+        return this.writeFreeText(ctx, annot);
       default:
         throw new UnsupportedAnnotation(annot.type);
     }
@@ -127,6 +152,21 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
     const dict = this.commonEntries(ctx, annot, 'Ink', ap.bbox);
     dict.set(PDFName.of('InkList'), context.obj(annot.strokes.filter((s) => s.length > 0).map((s) => s.flatMap((p) => [p.x, p.y]))));
     dict.set(PDFName.of('BS'), context.obj({ W: annot.width, S: 'S' }));
+    dict.set(PDFName.of('AP'), context.obj({ N: registerAppearance(ctx, ap) }));
+    return this.attach(ctx, dict);
+  }
+
+  private writeFreeText(ctx: WriteContext, annot: FreeTextAnnot): PDFRef {
+    const ap = buildFreeTextAppearance(annot);
+    const { context } = ctx.pdf;
+    const dict = this.commonEntries(ctx, annot, 'FreeText', ap.bbox);
+    // For FreeText, /C is the box background, not the text colour: leave it out so viewers draw no fill.
+    dict.delete(PDFName.of('C'));
+    // /Contents is the visible text here, so a separate comment text has no place to live (replies still do).
+    dict.set(PDFName.of('Contents'), PDFHexString.fromText(annot.text));
+    dict.set(PDFName.of('DA'), PDFString.of(`${colorArray(annot.color).join(' ')} rg /${FONTS[annot.fontFamily].da} ${annot.fontSize} Tf`));
+    dict.set(PDFName.of('Q'), ctx.pdf.context.obj(0));
+    dict.set(PDFName.of('BS'), context.obj({ W: 0, S: 'S' }));
     dict.set(PDFName.of('AP'), context.obj({ N: registerAppearance(ctx, ap) }));
     return this.attach(ctx, dict);
   }

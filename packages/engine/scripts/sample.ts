@@ -3,7 +3,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { PDFDocument, StandardFonts, degrees, rgb } from '@cantoo/pdf-lib';
 import {
-  History, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
+  History, fitFreeText, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
   type Annotation, type PageId, type Point, type Rect, type ShapeAnnot, type SourceDoc,
 } from '@pagewright/core';
 import { PdfLibWriter, defaultSaveOpts } from '../src';
@@ -119,6 +119,17 @@ async function main() {
     comment: { text: 'Icon should stay upright on a rotated page.', replies: [] } }));
   h.execute(addAnnotation({ ...common, type: 'note', id: 'note-p4', pageId: 'p4', color: noteColor, icon: 'comment', position: { x: 300, y: 560 },
     comment: { text: 'On the offset-CropBox page.', replies: [] } }));
+
+  // Free text in each standard font, with wrapping and accents; plus the rotated and offset-CropBox pages.
+  const text = (id: string, pageId: string, family: 'sans' | 'serif' | 'mono', size: number, x: number, top: number, w: number, body: string, color = red2): Annotation =>
+    fitFreeText({ ...common, type: 'freetext', id, pageId, color, fontFamily: family, fontSize: size, text: body, rect: { x, y: top, w, h: 0 } });
+  const long = 'The quick brown fox jumps over the lazy dog. Crème brûlée, façade, naïve, año, Zürich, 5 €, “quoted” and em—dash.';
+  h.execute(addAnnotation(text('ft-sans', 'p5', 'sans', 12, 72, 160, 220, 'Sans (Helvetica): ' + long, blue2)));
+  h.execute(addAnnotation(text('ft-serif', 'p5', 'serif', 12, 320, 160, 220, 'Serif (Times): ' + long, green2)));
+  h.execute(addAnnotation(text('ft-mono', 'p5', 'mono', 10, 72, 90, 460, 'Mono (Courier): ' + long, red2)));
+  h.execute(addAnnotation(text('ft-big', 'p5', 'sans', 24, 72, 40, 460, 'Large text', blue2)));
+  h.execute(addAnnotation(text('ft-p3', 'p3', 'sans', 14, 72, 540, 300, 'Free text on a rotated page turns with the page.')));
+  h.execute(addAnnotation(text('ft-p4', 'p4', 'serif', 14, 72, 540, 300, 'Free text on the offset-CropBox page.', blue2)));
 
   // Extra rotation on top of the source rotation: p2 -> 90, p3 -> 90 + 90.
   h.execute(rotatePages(['p2', 'p3'], 90));

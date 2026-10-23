@@ -140,7 +140,8 @@ export function CommentsPanel() {
 
   // Offer to comment on the selected annotation when it has no comment yet (notes always have one).
   const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id);
-  const canAdd = sel && !sel.comment && sel.type !== 'note' ? sel : undefined;
+  // Notes always have a comment; a text box's text already lives in its own /Contents.
+  const canAdd = sel && !sel.comment && sel.type !== 'note' && sel.type !== 'freetext' ? sel : undefined;
   const draftPage = ui.draftNote && doc.pages.findIndex((p) => p.id === ui.draftNote!.pageId) + 1;
 
   return (

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  NOTE_FILL, constrainDrag, hitTest, pdfToViewport, quadBounds, resizeShape, simplifyPolyline, translateAnnotation, viewportToPdf,
-  type Annotation, type PageGeometry, type PageRef, type Point, type Quad, type Rect, type ResizeHandle, type ShapeAnnot,
+  NOTE_FILL, constrainDrag, hitTest, pdfToViewport, quadBounds, resizeFreeText, resizeShape, simplifyPolyline, translateAnnotation, viewportToPdf,
+  type Annotation, type PageGeometry, type PageRef, type Point, type Quad, type Rect, type ResizeHandle, type ShapeAnnot, type TextHandle,
 } from '@pagewright/core';
 import type { TextRun } from '@pagewright/engine';
 import { useSnapshot, useUi } from '../react';
 import type { MarkupType, ShapeTool } from '../store';
 import { AnnotationView, Handles, noteViewportRect } from './AnnotationView';
+import { TextEditor } from './TextEditor';
 
 const EMPTY: readonly Annotation[] = [];
 const MARKUP_TOOLS: readonly string[] = ['highlight', 'underline', 'strikeout'];
@@ -27,7 +28,7 @@ type Gesture =
   | { kind: 'markup'; a: Point; b: Point } // viewport coordinates
   | { kind: 'ink'; points: Point[] } // PDF coordinates from here on
   | { kind: 'shape'; tool: ShapeTool; a: Point; b: Point; constrain: boolean }
-  | { kind: 'edit'; original: Annotation; current: Annotation; from: Point; handle?: ResizeHandle; moved: boolean };
+  | { kind: 'edit'; original: Annotation; current: Annotation; from: Point; handle?: ResizeHandle | TextHandle; moved: boolean };
 
 /**
  * Our annotations are drawn here, not by PDF.js, so editing is instant and independent of the PDF
@@ -77,10 +78,19 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
     if (e.button !== 0) return;
     const p = local(e);
     const pdf = toPdf(p);
+    store.commitText(); // clicking anywhere finishes the text being typed
+
+    if (tool === 'text') {
+      // Clicking existing text edits it; clicking empty page starts a new box with its upper-left corner there.
+      const hit = [...annots].reverse().find((a) => a.type === 'freetext' && a.origin === 'app' && touches(a, p, pdf));
+      if (hit) store.editText(page.id, hit.id);
+      else store.beginText(page.id, pdf);
+      return;
+    }
 
     if (tool === 'select') {
-      const handle = (e.target as SVGElement).dataset?.handle as ResizeHandle | undefined;
-      if (handle && selected?.type === 'shape' && selected.origin === 'app') {
+      const handle = (e.target as SVGElement).dataset?.handle as ResizeHandle | TextHandle | undefined;
+      if (handle && (selected?.type === 'shape' || selected?.type === 'freetext') && selected.origin === 'app') {
         e.currentTarget.setPointerCapture?.(e.pointerId);
         setGesture({ kind: 'edit', original: selected, current: selected, from: pdf, handle, moved: false });
         return;
@@ -126,9 +136,11 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
       case 'edit': {
         const { original, handle, from } = gesture;
         const current =
-          handle && original.type === 'shape'
-            ? resizeShape(original, handle, pdf)
-            : translateAnnotation(original, pdf.x - from.x, pdf.y - from.y);
+          handle && original.type === 'freetext'
+            ? resizeFreeText(original, handle as TextHandle, pdf)
+            : handle && original.type === 'shape'
+              ? resizeShape(original, handle as ResizeHandle, pdf)
+              : translateAnnotation(original, pdf.x - from.x, pdf.y - from.y);
         const start = toViewport(from);
         setGesture({ ...gesture, current, moved: gesture.moved || Math.hypot(p.x - start.x, p.y - start.y) >= 1 });
         break;
@@ -162,12 +174,25 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
     }
   };
 
-  // What to draw: the stored annotations, with the one being edited replaced by its live preview.
-  const shown = annots.map((a) => (gesture?.kind === 'edit' && gesture.original.id === a.id ? gesture.current : a));
+  // What to draw: the stored annotations, with the one being edited replaced by its live preview, and the
+  // one being typed in left out (its text box is on screen instead).
+  const typing = ui.textEdit?.pageId === page.id ? ui.textEdit : undefined;
+  const shown = annots
+    .filter((a) => a.id !== typing?.id)
+    .map((a) => (gesture?.kind === 'edit' && gesture.original.id === a.id ? gesture.current : a));
   const shownSelected = shown.find((a) => a.id === selectedId);
   const draft = gesture ? draftAnnotation(gesture, page.id, ui.drawStyle) : undefined;
 
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if (tool !== 'select') return;
+    const r = svgRef.current!.getBoundingClientRect();
+    const p = { x: e.clientX - r.left, y: e.clientY - r.top };
+    const hit = [...annots].reverse().find((a) => a.type === 'freetext' && a.origin === 'app' && touches(a, p, toPdf(p)));
+    if (hit) store.editText(page.id, hit.id);
+  };
+
   return (
+    <>
     <svg
       ref={svgRef}
       className={`overlay tool-${tool}`}
@@ -177,11 +202,12 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={() => setGesture(null)}
+      onDoubleClick={onDoubleClick}
     >
       {shown.map((a) => (
         <AnnotationView key={a.id} annot={a} geometry={geometry} scale={scale} selected={a.id === selectedId} />
       ))}
-      {tool === 'select' && shownSelected?.type === 'shape' && shownSelected.origin === 'app' && (
+      {tool === 'select' && !typing && (shownSelected?.type === 'shape' || shownSelected?.type === 'freetext') && shownSelected.origin === 'app' && (
         <Handles shape={shownSelected} geometry={geometry} scale={scale} />
       )}
       {draft && <AnnotationView annot={draft} geometry={geometry} scale={scale} />}
@@ -200,6 +226,8 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
         />
       )}
     </svg>
+    {typing && <TextEditor key={typing.id ?? `new-${typing.position.x}-${typing.position.y}`} edit={typing} geometry={geometry} scale={scale} />}
+    </>
   );
 }
 

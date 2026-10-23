@@ -64,7 +64,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .page-view canvas { display: block; }
 .overlay { position: absolute; inset: 0; }
 .overlay { touch-action: pan-y pinch-zoom; }
-.overlay:is(.tool-highlight, .tool-underline, .tool-strikeout, .tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow, .tool-note) { cursor: crosshair; touch-action: none; }
+.overlay:is(.tool-highlight, .tool-underline, .tool-strikeout, .tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow, .tool-note, .tool-text) { cursor: crosshair; touch-action: none; }
 .overlay .annot { pointer-events: none; }
 .handle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; cursor: nwse-resize; }
 .selection-outline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 2; }
@@ -83,6 +83,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .toast { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgb(0 0 0 / 0.2); }
 .toast.error { border-color: var(--danger); }
 .toast button { border: none; padding: 0 4px; background: none; }
+
+/* Free text being typed */
+.text-editor { position: absolute; transform-origin: 0 0; box-sizing: border-box; resize: none; overflow: hidden; border: 1px dashed var(--accent); background: rgb(255 255 255 / 0.9); outline: none; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; z-index: 2; }
+.text-editor-hint { position: absolute; transform: translateY(-100%); background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; z-index: 3; white-space: nowrap; }
+.toolbar select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
 
 /* Comments panel */
 .comments { width: 300px; flex: none; overflow-y: auto; background: var(--surface); border-left: 1px solid var(--border); padding: 0 12px 16px; box-sizing: border-box; }

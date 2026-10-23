@@ -1,23 +1,39 @@
 import {
-  History, NOTE_FILL, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
-  type Annotation, type AnnotComment, type AnnotId, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
+  DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  type Annotation, type AnnotComment, type AnnotId, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
 import type { PickedFile, Platform } from '@pagewright/platform';
 
 export type MarkupType = 'highlight' | 'underline' | 'strikeout';
 export type ShapeTool = 'rect' | 'ellipse' | 'line' | 'arrow';
-export type ToolId = 'select' | MarkupType | 'ink' | ShapeTool | 'note';
+export type ToolId = 'select' | MarkupType | 'ink' | ShapeTool | 'note' | 'text';
 
 /** Stroke and fill for the drawing tools. Changing it also restyles the selected ink or shape. */
 export interface DrawStyle {
   color: RGBA;
   width: number;
+  /** Free text only. */
+  fontSize: number;
+  fontFamily: FontFamily;
   /** Rectangles and ellipses only. */
   fill?: RGBA;
 }
 
-export const DEFAULT_DRAW_STYLE: DrawStyle = { color: { r: 0.86, g: 0.15, b: 0.15, a: 1 }, width: 2 };
+export const DEFAULT_DRAW_STYLE: DrawStyle = {
+  color: { r: 0.86, g: 0.15, b: 0.15, a: 1 }, width: 2, fontSize: DEFAULT_FONT_SIZE, fontFamily: 'sans',
+};
+
+/** A text box being typed. For a new box `id` is unset and it becomes an annotation only once it has text. */
+export interface TextEdit {
+  pageId: PageId;
+  id?: AnnotId;
+  /** Upper-left corner of the box, PDF user space. */
+  position: Point;
+  width: number;
+  /** What has been typed so far. Kept here, not in the text box, so nothing is lost when focus moves. */
+  text: string;
+}
 
 const MARKUP_COLOR: Record<MarkupType, { r: number; g: number; b: number; a: number }> = {
   highlight: { r: 1, g: 0.9, b: 0, a: 1 },
@@ -31,6 +47,7 @@ export interface UiState {
   activeTool: ToolId;
   drawStyle: DrawStyle;
   commentsOpen: boolean;
+  textEdit?: TextEdit;
   /** A note being placed: it becomes an annotation only once it has text (so nothing empty is left behind). */
   draftNote?: { pageId: PageId; position: Point };
   selection: ReadonlySet<PageId>;
@@ -252,7 +269,7 @@ export class AppStore {
     } as const);
   }
 
-  private addDrawn(partial: { type: 'ink' | 'shape' | 'note'; pageId: PageId; color: RGBA } & Record<string, unknown>): AnnotId {
+  private addDrawn(partial: { type: 'ink' | 'shape' | 'note' | 'freetext'; pageId: PageId; color: RGBA } & Record<string, unknown>): AnnotId {
     const now = new Date().toISOString();
     const id = this.newId();
     this.history.execute(
@@ -266,6 +283,70 @@ export class AppStore {
     this.history.execute(updateAnnotation({ ...next, modifiedAt: new Date().toISOString() }));
   }
 
+  // ---- Free text -----------------------------------------------------------------------
+
+  /** Start typing a new text box whose upper-left corner is `position`. */
+  beginText(pageId: PageId, position: Point): void {
+    this.commitText(); // finish whatever was being typed first
+    this.patch({ textEdit: { pageId, position, width: DEFAULT_TEXT_WIDTH, text: '' }, selectedAnnot: undefined });
+  }
+
+  /** Edit the text of an existing text box. */
+  editText(pageId: PageId, id: AnnotId): void {
+    const a = this.history.current.annotations[pageId]?.find((x) => x.id === id);
+    if (a?.type !== 'freetext' || a.origin !== 'app') return;
+    this.commitText();
+    this.patch({
+      textEdit: { pageId, id, position: { x: a.rect.x, y: a.rect.y + a.rect.h }, width: a.rect.w, text: a.text },
+      selectedAnnot: { pageId, id },
+    });
+  }
+
+  /** Called on every keystroke. */
+  setEditText(text: string): void {
+    if (this.ui.textEdit) this.patch({ textEdit: { ...this.ui.textEdit, text } });
+  }
+
+  cancelText(): void {
+    this.patch({ textEdit: undefined });
+  }
+
+  /**
+   * Finishes the text being typed. The text is normalised first, so what is stored is exactly what is drawn
+   * and saved. A new box with no text is simply dropped; clearing an existing box deletes it.
+   */
+  commitText(expected?: TextEdit): void {
+    const edit = this.ui.textEdit;
+    // A late blur from a text box that has already been replaced must not commit the new one.
+    if (!edit || (expected && expected.id !== edit.id) || (expected && expected.position !== edit.position)) return;
+    this.patch({ textEdit: undefined });
+    const { text, replaced } = sanitizeText(edit.text);
+    if (replaced > 0) {
+      this.notice('Some characters are not available in the built-in PDF fonts and were replaced with "?".');
+    }
+    const body = text.trim() === '' ? '' : text.replace(/\s+$/, '');
+
+    if (edit.id) {
+      const a = this.history.current.annotations[edit.pageId]?.find((x) => x.id === edit.id);
+      if (a?.type !== 'freetext') return;
+      if (body === '') this.deleteAnnotation(edit.pageId, a.id);
+      else if (body !== a.text) this.updateAnnotation(fitFreeText({ ...a, text: body }));
+      return;
+    }
+    if (body === '') return;
+    const { color, fontSize, fontFamily } = this.ui.drawStyle;
+    const box: FreeTextAnnot = {
+      type: 'freetext', id: '', pageId: edit.pageId, author: '', createdAt: '', modifiedAt: '', opacity: 1, origin: 'app',
+      color, text: body, fontSize, fontFamily,
+      rect: { x: edit.position.x, y: edit.position.y, w: edit.width, h: 0 },
+    };
+    const fitted = fitFreeText(box);
+    // addDrawn supplies the id, author and timestamps.
+    const { id: _id, author: _author, createdAt: _created, modifiedAt: _modified, opacity: _opacity, origin: _origin, ...fields } = fitted;
+    const id = this.addDrawn(fields);
+    this.patch({ selectedAnnot: { pageId: edit.pageId, id } });
+  }
+
   /** The drawing style for new ink and shapes; also restyles the selected ink or shape. */
   setDrawStyle(patch: Partial<DrawStyle>): void {
     const style: DrawStyle = { ...this.ui.drawStyle, ...patch };
@@ -273,7 +354,9 @@ export class AppStore {
     this.patch({ drawStyle: style });
     const sel = this.ui.selectedAnnot;
     const a = sel && this.history.current.annotations[sel.pageId]?.find((x) => x.id === sel.id);
-    if (a?.type === 'ink') this.updateAnnotation({ ...a, color: style.color, width: style.width });
+    if (a?.type === 'freetext' && a.origin === 'app') {
+      this.updateAnnotation(fitFreeText({ ...a, color: style.color, fontSize: style.fontSize, fontFamily: style.fontFamily }));
+    } else if (a?.type === 'ink') this.updateAnnotation({ ...a, color: style.color, width: style.width });
     else if (a?.type === 'shape') {
       const next: ShapeAnnot = { ...a, color: style.color, width: style.width };
       if (a.line) delete next.fill;
