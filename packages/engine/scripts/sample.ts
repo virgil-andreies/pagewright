@@ -3,8 +3,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { PDFDocument, StandardFonts, degrees, rgb } from '@cantoo/pdf-lib';
 import {
-  History, memorySource, addAnnotation, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
-  type Annotation, type PageId, type SourceDoc,
+  History, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
+  type Annotation, type PageId, type Point, type Rect, type ShapeAnnot, type SourceDoc,
 } from '@pagewright/core';
 import { PdfLibWriter, defaultSaveOpts } from '../src';
 
@@ -61,11 +61,12 @@ async function main() {
   const a = await makeSource('A', ['Document A, page 1', 'Document A, page 2']);
   const b = await makeSource('B', ['Document B (source /Rotate 90)'], 90);
   const c = await makeSource('C', ['Document C (offset CropBox)'], 0, [50, 100, 450, 600]);
+  const d = await makeSource('D', ['Document D (ink and shapes)']);
 
   let n = 0;
   const h = new History(emptyDocument());
-  for (const s of [a.src, b.src, c.src]) h.execute(addSource(s, undefined, () => `p${++n}`));
-  // p1,p2 = A; p3 = B; p4 = C
+  for (const s of [a.src, b.src, c.src, d.src]) h.execute(addSource(s, undefined, () => `p${++n}`));
+  // p1,p2 = A; p3 = B; p4 = C; p5 = D
   h.execute(setMetadata({ title: 'Pagewright sample', author: 'Pagewright', keywords: ['sample', 'test'] }));
 
   const yellow = { r: 1, g: 0.9, b: 0 };
@@ -79,6 +80,33 @@ async function main() {
   h.execute(addAnnotation(markup('highlight', 'p2', 'hl-2', span(a2[1]!, 'lazy dog', a.widthOf), yellow)));
   h.execute(addAnnotation(markup('highlight', 'p3', 'hl-3', span(b.lines[0]![1]!, 'quick brown', b.widthOf), yellow)));
   h.execute(addAnnotation(markup('highlight', 'p4', 'hl-4', span(c.lines[0]![1]!, 'quick brown', c.widthOf), yellow)));
+
+
+  // Ink and shapes. Unrotated page (p5), then the same kinds on rotated / offset pages to check geometry.
+  const red2 = { r: 0.86, g: 0.15, b: 0.15, a: 1 };
+  const blue2 = { r: 0.15, g: 0.4, b: 0.9, a: 1 };
+  const green2 = { r: 0.1, g: 0.6, b: 0.3, a: 1 };
+  const common = { author: 'Pagewright sample', createdAt: new Date().toISOString(), modifiedAt: new Date().toISOString(), opacity: 1, origin: 'app' as const };
+  const shape = (id: string, pageId: string, kind: 'rect' | 'ellipse' | 'line' | 'arrow', rect: Rect, color: typeof red2, width: number, extra: Partial<ShapeAnnot> = {}): Annotation => ({
+    ...common, type: 'shape', shape: kind, id, pageId, rect, color, width, ...extra,
+  });
+  const lineOf = (id: string, pageId: string, kind: 'line' | 'arrow', a: Point, b: Point, color: typeof red2, width: number) =>
+    shape(id, pageId, kind, normalizeRect(a, b), color, width, { line: [a, b] });
+  const squiggle = Array.from({ length: 60 }, (_, i): Point => ({ x: 72 + i * 8, y: 520 + 40 * Math.sin(i / 5) }));
+
+  h.execute(addAnnotation({ ...common, type: 'ink', id: 'ink-1', pageId: 'p5', color: red2, width: 3, strokes: [squiggle] }));
+  h.execute(addAnnotation({ ...common, type: 'ink', id: 'ink-dot', pageId: 'p5', color: blue2, width: 10, strokes: [[{ x: 520, y: 520 }]] }));
+  h.execute(addAnnotation(shape('rect-1', 'p5', 'rect', { x: 72, y: 380, w: 180, h: 90 }, blue2, 4)));
+  h.execute(addAnnotation(shape('rect-fill', 'p5', 'rect', { x: 290, y: 380, w: 120, h: 90 }, green2, 2, { fill: { r: 0.8, g: 0.95, b: 0.8, a: 1 } })));
+  h.execute(addAnnotation(shape('ell-1', 'p5', 'ellipse', { x: 440, y: 380, w: 100, h: 90 }, red2, 3)));
+  h.execute(addAnnotation(lineOf('line-1', 'p5', 'line', { x: 72, y: 330 }, { x: 300, y: 270 }, green2, 3)));
+  h.execute(addAnnotation(lineOf('arrow-1', 'p5', 'arrow', { x: 340, y: 270 }, { x: 540, y: 340 }, blue2, 3)));
+  h.execute(addAnnotation(lineOf('arrow-thick', 'p5', 'arrow', { x: 72, y: 200 }, { x: 300, y: 200 }, red2, 8)));
+  // Rotated page (p3 shows at 180 degrees) and offset-CropBox page (p4): the boxes must sit on the text.
+  h.execute(addAnnotation(shape('rect-p3', 'p3', 'rect', { x: 66, y: 652, w: 410, h: 30 }, red2, 2)));
+  h.execute(addAnnotation(lineOf('arrow-p3', 'p3', 'arrow', { x: 72, y: 560 }, { x: 300, y: 610 }, blue2, 2)));
+  h.execute(addAnnotation(shape('rect-p4', 'p4', 'rect', { x: 66, y: 652, w: 410, h: 30 }, red2, 2)));
+  h.execute(addAnnotation(shape('ell-p2', 'p2', 'ellipse', { x: 66, y: 650, w: 410, h: 40 }, blue2, 2)));
 
   // Extra rotation on top of the source rotation: p2 -> 90, p3 -> 90 + 90.
   h.execute(rotatePages(['p2', 'p3'], 90));

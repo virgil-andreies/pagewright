@@ -13,7 +13,9 @@ export function PagewrightProvider({ store, children }: { store: AppStore; child
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>;
 }
 
-const TOOL_KEYS: Record<string, ToolId> = { v: 'select', h: 'highlight', u: 'underline', s: 'strikeout' };
+const TOOL_KEYS: Record<string, ToolId> = {
+  v: 'select', h: 'highlight', u: 'underline', s: 'strikeout', p: 'ink', r: 'rect', e: 'ellipse', l: 'line', a: 'arrow',
+};
 
 function useShortcuts(store: AppStore) {
   useEffect(() => {

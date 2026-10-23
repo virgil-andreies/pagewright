@@ -1,3 +1,4 @@
+import type { RGBA } from '@pagewright/core';
 import { useSnapshot, useUi } from '../react';
 import type { ToolId } from '../store';
 
@@ -6,7 +7,54 @@ const TOOLS: { id: ToolId; label: string; key: string }[] = [
   { id: 'highlight', label: 'Highlight', key: 'H' },
   { id: 'underline', label: 'Underline', key: 'U' },
   { id: 'strikeout', label: 'Strikeout', key: 'S' },
+  { id: 'ink', label: 'Pen', key: 'P' },
+  { id: 'rect', label: 'Rectangle', key: 'R' },
+  { id: 'ellipse', label: 'Ellipse', key: 'E' },
+  { id: 'line', label: 'Line', key: 'L' },
+  { id: 'arrow', label: 'Arrow', key: 'A' },
 ];
+
+export const SWATCHES: { name: string; color: RGBA }[] = [
+  { name: 'Red', color: { r: 0.86, g: 0.15, b: 0.15, a: 1 } },
+  { name: 'Blue', color: { r: 0.15, g: 0.4, b: 0.9, a: 1 } },
+  { name: 'Green', color: { r: 0.1, g: 0.6, b: 0.3, a: 1 } },
+  { name: 'Orange', color: { r: 0.95, g: 0.55, b: 0.1, a: 1 } },
+  { name: 'Black', color: { r: 0.1, g: 0.1, b: 0.1, a: 1 } },
+];
+export const WIDTHS = [1, 2, 4, 8];
+
+const sameColor = (a: RGBA, b: RGBA) => a.r === b.r && a.g === b.g && a.b === b.b;
+const DRAWING: readonly string[] = ['ink', 'rect', 'ellipse', 'line', 'arrow'];
+
+/** Colour and line width. Shown while a drawing tool is active or an ink/shape annotation is selected. */
+function StyleControls() {
+  const { store } = useUi();
+  const { doc, ui } = useSnapshot();
+  const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id);
+  const styled = sel && (sel.type === 'ink' || sel.type === 'shape') ? sel : undefined;
+  if (!styled && !DRAWING.includes(ui.activeTool)) return null;
+  const current = styled ?? ui.drawStyle;
+
+  return (
+    <div className="group style" aria-label="Line style">
+      {SWATCHES.map((s) => (
+        <button
+          key={s.name}
+          className="swatch"
+          style={{ background: `rgb(${s.color.r * 255} ${s.color.g * 255} ${s.color.b * 255})` }}
+          aria-label={s.name}
+          aria-pressed={sameColor(current.color, s.color)}
+          onClick={() => store.setDrawStyle({ color: s.color })}
+        />
+      ))}
+      {WIDTHS.map((w) => (
+        <button key={w} aria-label={`Width ${w}`} aria-pressed={current.width === w} onClick={() => store.setDrawStyle({ width: w })}>
+          {w}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function Toolbar() {
   const { store } = useUi();
@@ -49,6 +97,7 @@ export function Toolbar() {
           </button>
         ))}
       </div>
+      <StyleControls />
       <div className="group zoom">
         <button onClick={() => store.setZoom(ui.zoom / 1.25)} disabled={!hasPages} aria-label="Zoom out">−</button>
         <button onClick={() => store.setZoom(1)} disabled={!hasPages} aria-label="Reset zoom">{Math.round(ui.zoom * 100)}%</button>

@@ -1,12 +1,23 @@
 import {
-  History, describeError, addAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
-  type AnnotId, type AppError, type Command, type PageId, type Quad, type SourceDoc, type SourceId, type WorkingDocument,
+  History, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  type Annotation, type AnnotId, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
 import type { PickedFile, Platform } from '@pagewright/platform';
 
 export type MarkupType = 'highlight' | 'underline' | 'strikeout';
-export type ToolId = 'select' | MarkupType;
+export type ShapeTool = 'rect' | 'ellipse' | 'line' | 'arrow';
+export type ToolId = 'select' | MarkupType | 'ink' | ShapeTool;
+
+/** Stroke and fill for the drawing tools. Changing it also restyles the selected ink or shape. */
+export interface DrawStyle {
+  color: RGBA;
+  width: number;
+  /** Rectangles and ellipses only. */
+  fill?: RGBA;
+}
+
+export const DEFAULT_DRAW_STYLE: DrawStyle = { color: { r: 0.86, g: 0.15, b: 0.15, a: 1 }, width: 2 };
 
 const MARKUP_COLOR: Record<MarkupType, { r: number; g: number; b: number; a: number }> = {
   highlight: { r: 1, g: 0.9, b: 0, a: 1 },
@@ -18,6 +29,7 @@ const MARKUP_COLOR: Record<MarkupType, { r: number; g: number; b: number; a: num
 export interface UiState {
   zoom: number;
   activeTool: ToolId;
+  drawStyle: DrawStyle;
   selection: ReadonlySet<PageId>;
   /** Anchor for shift-click range selection. */
   anchor?: PageId;
@@ -56,7 +68,7 @@ const MAX_ZOOM = 4;
 
 export class AppStore {
   readonly history = new History(emptyDocument());
-  private ui: UiState = { zoom: 1, activeTool: 'select', selection: new Set(), currentPage: 0, notices: [] };
+  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, selection: new Set(), currentPage: 0, notices: [] };
   private snap!: Snapshot;
   private listeners = new Set<() => void>();
   private renderDocs = new Map<SourceId, RenderDoc>();
@@ -209,6 +221,56 @@ export class AppStore {
       }),
     );
     return id;
+  }
+
+  /** One ink annotation made of the given strokes (already simplified by the caller). */
+  addInk(pageId: PageId, strokes: Point[][]): AnnotId | undefined {
+    const kept = strokes.filter((s) => s.length > 0);
+    if (kept.length === 0) return undefined;
+    const { color, width } = this.ui.drawStyle;
+    return this.addDrawn({ type: 'ink', pageId, strokes: kept, width, color } as const);
+  }
+
+  /** A shape dragged from corner/end `a` to `b`, in PDF user space. */
+  addShape(pageId: PageId, shape: ShapeTool, a: Point, b: Point): AnnotId {
+    const { color, width, fill } = this.ui.drawStyle;
+    const isLine = shape === 'line' || shape === 'arrow';
+    const rect = isLine ? pointsBounds([a, b]) : normalizeRect(a, b);
+    return this.addDrawn({
+      type: 'shape', pageId, shape, rect, ...(isLine ? { line: [a, b] as [Point, Point] } : {}),
+      width, color, ...(!isLine && fill ? { fill } : {}),
+    } as const);
+  }
+
+  private addDrawn(partial: { type: 'ink' | 'shape'; pageId: PageId; color: RGBA } & Record<string, unknown>): AnnotId {
+    const now = new Date().toISOString();
+    const id = this.newId();
+    this.history.execute(
+      addAnnotation({ id, author: this.author, createdAt: now, modifiedAt: now, opacity: 1, origin: 'app', ...partial } as Annotation),
+    );
+    return id;
+  }
+
+  /** Replaces an annotation (after a move, resize or restyle). One command, so one undo step. */
+  updateAnnotation(next: Annotation): void {
+    this.history.execute(updateAnnotation({ ...next, modifiedAt: new Date().toISOString() }));
+  }
+
+  /** The drawing style for new ink and shapes; also restyles the selected ink or shape. */
+  setDrawStyle(patch: Partial<DrawStyle>): void {
+    const style: DrawStyle = { ...this.ui.drawStyle, ...patch };
+    if ('fill' in patch && patch.fill === undefined) delete style.fill;
+    this.patch({ drawStyle: style });
+    const sel = this.ui.selectedAnnot;
+    const a = sel && this.history.current.annotations[sel.pageId]?.find((x) => x.id === sel.id);
+    if (a?.type === 'ink') this.updateAnnotation({ ...a, color: style.color, width: style.width });
+    else if (a?.type === 'shape') {
+      const next: ShapeAnnot = { ...a, color: style.color, width: style.width };
+      if (a.line) delete next.fill;
+      else if (style.fill) next.fill = style.fill;
+      else delete next.fill;
+      this.updateAnnotation(next);
+    }
   }
 
   selectAnnotation(sel: { pageId: PageId; id: AnnotId } | undefined): void {

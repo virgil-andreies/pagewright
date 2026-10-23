@@ -1,9 +1,9 @@
-import type { Annotation, RGBA } from '@pagewright/core';
+import type { Annotation, InkAnnot, RGBA, ShapeAnnot } from '@pagewright/core';
 import {
   PDFArray, PDFDict, PDFHexString, PDFName, PDFString,
   type PDFDocument, type PDFPage, type PDFRef,
 } from '@cantoo/pdf-lib';
-import { buildTextMarkupAppearance, type AppearanceStream } from './appearance';
+import { buildInkAppearance, buildShapeAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
 
 export interface WriteContext {
   pdf: PDFDocument;
@@ -59,6 +59,10 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
       case 'underline':
       case 'strikeout':
         return this.writeTextMarkup(ctx, annot);
+      case 'ink':
+        return this.writeInk(ctx, annot);
+      case 'shape':
+        return this.writeShape(ctx, annot);
       default:
         throw new UnsupportedAnnotation(annot.type);
     }
@@ -79,6 +83,36 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
       ),
     );
     dict.set(PDFName.of('AP'), ctx.pdf.context.obj({ N: registerAppearance(ctx, ap) }));
+    return this.attach(ctx, dict);
+  }
+
+  private writeInk(ctx: WriteContext, annot: InkAnnot): PDFRef {
+    const ap = buildInkAppearance(annot);
+    const { context } = ctx.pdf;
+    const dict = this.commonEntries(ctx, annot, 'Ink', ap.bbox);
+    dict.set(PDFName.of('InkList'), context.obj(annot.strokes.filter((s) => s.length > 0).map((s) => s.flatMap((p) => [p.x, p.y]))));
+    dict.set(PDFName.of('BS'), context.obj({ W: annot.width, S: 'S' }));
+    dict.set(PDFName.of('AP'), context.obj({ N: registerAppearance(ctx, ap) }));
+    return this.attach(ctx, dict);
+  }
+
+  private writeShape(ctx: WriteContext, annot: ShapeAnnot): PDFRef {
+    const ap = buildShapeAppearance(annot);
+    const { context } = ctx.pdf;
+    const subtype = { rect: 'Square', ellipse: 'Circle', line: 'Line', arrow: 'Line' }[annot.shape];
+    const dict = this.commonEntries(ctx, annot, subtype, ap.bbox);
+    dict.set(PDFName.of('BS'), context.obj({ W: annot.width, S: 'S' }));
+    if (annot.shape === 'line' || annot.shape === 'arrow') {
+      const [a, b] = annot.line ?? [{ x: annot.rect.x, y: annot.rect.y }, { x: annot.rect.x + annot.rect.w, y: annot.rect.y + annot.rect.h }];
+      dict.set(PDFName.of('L'), context.obj([a.x, a.y, b.x, b.y]));
+      dict.set(PDFName.of('LE'), context.obj(['None', annot.shape === 'arrow' ? 'ClosedArrow' : 'None']));
+    } else {
+      // /Rect is the outer box (stroke included); /RD says how far the shape itself is inset from it.
+      const r = annot.width / 2;
+      dict.set(PDFName.of('RD'), context.obj([r, r, r, r]));
+      if (annot.fill && annot.fill.a > 0) dict.set(PDFName.of('IC'), context.obj(colorArray(annot.fill)));
+    }
+    dict.set(PDFName.of('AP'), context.obj({ N: registerAppearance(ctx, ap) }));
     return this.attach(ctx, dict);
   }
 

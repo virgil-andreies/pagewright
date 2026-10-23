@@ -1,25 +1,38 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  pdfToViewport, quadBounds, viewportToPdf,
-  type Annotation, type PageGeometry, type PageRef, type Point, type Quad, type Rect,
+  constrainDrag, hitTest, pdfToViewport, quadBounds, resizeShape, simplifyPolyline, translateAnnotation, viewportToPdf,
+  type Annotation, type PageGeometry, type PageRef, type Point, type Quad, type Rect, type ResizeHandle, type ShapeAnnot,
 } from '@pagewright/core';
 import type { TextRun } from '@pagewright/engine';
 import { useSnapshot, useUi } from '../react';
+import type { MarkupType, ShapeTool } from '../store';
+import { AnnotationView, Handles } from './AnnotationView';
 
 const EMPTY: readonly Annotation[] = [];
+const MARKUP_TOOLS: readonly string[] = ['highlight', 'underline', 'strikeout'];
+const SHAPE_TOOLS: readonly string[] = ['rect', 'ellipse', 'line', 'arrow'];
+/** Drags shorter than this many screen pixels are clicks, not shapes. */
+const MIN_DRAG_PX = 3;
+/** How close a click must be to count as touching an annotation. */
+const HIT_SLOP_PX = 5;
 
 const intersects = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-
-const rgb = (c: { r: number; g: number; b: number }) => `rgb(${Math.round(c.r * 255)} ${Math.round(c.g * 255)} ${Math.round(c.b * 255)})`;
 
 /** Text runs whose box overlaps the dragged rectangle (granularity: whole runs for now). */
 export function runsInRect(runs: readonly TextRun[], r: Rect): Quad[] {
   return runs.filter((run) => intersects(quadBounds(run.quad), r)).map((run) => run.quad);
 }
 
+type Gesture =
+  | { kind: 'markup'; a: Point; b: Point } // viewport coordinates
+  | { kind: 'ink'; points: Point[] } // PDF coordinates from here on
+  | { kind: 'shape'; tool: ShapeTool; a: Point; b: Point; constrain: boolean }
+  | { kind: 'edit'; original: Annotation; current: Annotation; from: Point; handle?: ResizeHandle; moved: boolean };
+
 /**
  * Our annotations are drawn here, not by PDF.js, so editing is instant and independent of the PDF
- * (spec section 5.1). Also hosts the markup tools' pointer input.
+ * (spec section 5.1). Also hosts the tools' pointer input. A continuous gesture (drag, stroke, resize)
+ * commits exactly one command on pointer-up (spec section 4).
  */
 export function AnnotationOverlay({ page, geometry, scale, width, height }: {
   page: PageRef; geometry: PageGeometry; scale: number; width: number; height: number;
@@ -29,12 +42,12 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
   const annots = doc.annotations[page.id] ?? EMPTY;
   const tool = ui.activeTool;
   const [runs, setRuns] = useState<TextRun[]>([]);
-  const [dragRect, setDragRect] = useState<{ a: Point; b: Point } | null>(null);
+  const [gesture, setGesture] = useState<Gesture | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Text runs are only needed while a markup tool is active.
+  // Text runs are only needed while a text-markup tool is active.
   useEffect(() => {
-    if (tool === 'select') return;
+    if (!MARKUP_TOOLS.includes(tool)) return;
     const rd = store.getRenderDoc(page.sourceId);
     let live = true;
     rd?.getTextContent(page.sourceIndex).then((r) => live && setRuns(r), () => {});
@@ -47,25 +60,99 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
     const r = svgRef.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
-
+  const toPdf = (p: Point) => viewportToPdf(geometry, scale, p);
   const toViewport = (p: Point) => pdfToViewport(geometry, scale, p);
-  const poly = (q: Quad) => [q.p1, q.p2, q.p4, q.p3].map((p) => { const v = toViewport(p); return `${v.x},${v.y}`; }).join(' ');
+
+  const selectedId = ui.selectedAnnot?.pageId === page.id ? ui.selectedAnnot.id : undefined;
+  const selected = annots.find((a) => a.id === selectedId);
 
   const onDown = (e: React.PointerEvent) => {
-    if (tool === 'select') return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    if (e.button !== 0) return;
     const p = local(e);
-    setDragRect({ a: p, b: p });
+    const pdf = toPdf(p);
+
+    if (tool === 'select') {
+      const handle = (e.target as SVGElement).dataset?.handle as ResizeHandle | undefined;
+      if (handle && selected?.type === 'shape' && selected.origin === 'app') {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        setGesture({ kind: 'edit', original: selected, current: selected, from: pdf, handle, moved: false });
+        return;
+      }
+      const hit = [...annots].reverse().find((a) => hitTest(a, pdf, HIT_SLOP_PX / scale));
+      store.selectAnnotation(hit ? { pageId: page.id, id: hit.id } : undefined);
+      if (hit && hit.origin === 'app') {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        setGesture({ kind: 'edit', original: hit, current: hit, from: pdf, moved: false });
+      }
+      return;
+    }
+
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    store.selectAnnotation(undefined);
+    if (MARKUP_TOOLS.includes(tool)) setGesture({ kind: 'markup', a: p, b: p });
+    else if (tool === 'ink') setGesture({ kind: 'ink', points: [pdf] });
+    else if (SHAPE_TOOLS.includes(tool)) setGesture({ kind: 'shape', tool: tool as ShapeTool, a: pdf, b: pdf, constrain: e.shiftKey });
   };
-  const onMove = (e: React.PointerEvent) => dragRect && setDragRect({ ...dragRect, b: local(e) });
+
+  const onMove = (e: React.PointerEvent) => {
+    if (!gesture) return;
+    const p = local(e);
+    const pdf = toPdf(p);
+    switch (gesture.kind) {
+      case 'markup':
+        setGesture({ ...gesture, b: p });
+        break;
+      case 'ink': {
+        const last = gesture.points.at(-1)!;
+        if (Math.hypot(pdf.x - last.x, pdf.y - last.y) * scale >= 1) setGesture({ ...gesture, points: [...gesture.points, pdf] });
+        break;
+      }
+      case 'shape':
+        setGesture({ ...gesture, b: pdf, constrain: e.shiftKey });
+        break;
+      case 'edit': {
+        const { original, handle, from } = gesture;
+        const current =
+          handle && original.type === 'shape'
+            ? resizeShape(original, handle, pdf)
+            : translateAnnotation(original, pdf.x - from.x, pdf.y - from.y);
+        const start = toViewport(from);
+        setGesture({ ...gesture, current, moved: gesture.moved || Math.hypot(p.x - start.x, p.y - start.y) >= 1 });
+        break;
+      }
+    }
+  };
+
   const onUp = () => {
-    if (!dragRect || tool === 'select') return;
-    const a = viewportToPdf(geometry, scale, dragRect.a);
-    const b = viewportToPdf(geometry, scale, dragRect.b);
-    const rect: Rect = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
-    setDragRect(null);
-    store.addMarkup(tool, page.id, runsInRect(runs, rect)); // one command on pointer-up
+    const g = gesture;
+    setGesture(null);
+    if (!g) return;
+    switch (g.kind) {
+      case 'markup': {
+        const a = toPdf(g.a);
+        const b = toPdf(g.b);
+        const rect: Rect = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
+        store.addMarkup(tool as MarkupType, page.id, runsInRect(runs, rect));
+        break;
+      }
+      case 'ink':
+        store.addInk(page.id, [simplifyPolyline(g.points, 0.75 / scale)]);
+        break;
+      case 'shape': {
+        const end = g.constrain ? constrainDrag(g.tool, g.a, g.b) : g.b;
+        if (Math.hypot(end.x - g.a.x, end.y - g.a.y) * scale >= MIN_DRAG_PX) store.addShape(page.id, g.tool, g.a, end);
+        break;
+      }
+      case 'edit':
+        if (g.moved) store.updateAnnotation(g.current);
+        break;
+    }
   };
+
+  // What to draw: the stored annotations, with the one being edited replaced by its live preview.
+  const shown = annots.map((a) => (gesture?.kind === 'edit' && gesture.original.id === a.id ? gesture.current : a));
+  const shownSelected = shown.find((a) => a.id === selectedId);
+  const draft = gesture ? draftAnnotation(gesture, page.id, ui.drawStyle) : undefined;
 
   return (
     <svg
@@ -76,55 +163,40 @@ export function AnnotationOverlay({ page, geometry, scale, width, height }: {
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
-      onPointerCancel={() => setDragRect(null)}
+      onPointerCancel={() => setGesture(null)}
     >
-      {annots.map((a) => {
-        if (a.type !== 'highlight' && a.type !== 'underline' && a.type !== 'strikeout') return null;
-        const selected = ui.selectedAnnot?.id === a.id;
-        const common = {
-          'data-annot-id': a.id,
-          className: `annot${selected ? ' selected' : ''}`,
-          onPointerDown: (e: React.PointerEvent) => {
-            if (tool !== 'select') return;
-            e.stopPropagation();
-            store.selectAnnotation({ pageId: page.id, id: a.id });
-          },
-        };
-        return (
-          <g key={a.id} {...common} opacity={a.opacity * a.color.a}>
-            {a.quads.map((q, i) =>
-              a.type === 'highlight' ? (
-                <polygon key={i} points={poly(q)} fill={rgb(a.color)} style={{ mixBlendMode: 'multiply' }} />
-              ) : (
-                <line
-                  key={i}
-                  {...lineFor(q, a.type, toViewport)}
-                  stroke={rgb(a.color)}
-                  strokeWidth={Math.max(1, quadBounds(q).h * 0.07 * scale)}
-                  strokeLinecap="round"
-                />
-              ),
-            )}
-            {selected && a.quads.map((q, i) => <polygon key={`s${i}`} points={poly(q)} className="selection-outline" />)}
-          </g>
-        );
-      })}
-      {dragRect && (
+      {shown.map((a) => (
+        <AnnotationView key={a.id} annot={a} geometry={geometry} scale={scale} selected={a.id === selectedId} />
+      ))}
+      {tool === 'select' && shownSelected?.type === 'shape' && shownSelected.origin === 'app' && (
+        <Handles shape={shownSelected} geometry={geometry} scale={scale} />
+      )}
+      {draft && <AnnotationView annot={draft} geometry={geometry} scale={scale} />}
+      {gesture?.kind === 'markup' && (
         <rect
           className="drag-rect"
-          x={Math.min(dragRect.a.x, dragRect.b.x)}
-          y={Math.min(dragRect.a.y, dragRect.b.y)}
-          width={Math.abs(dragRect.a.x - dragRect.b.x)}
-          height={Math.abs(dragRect.a.y - dragRect.b.y)}
+          x={Math.min(gesture.a.x, gesture.b.x)}
+          y={Math.min(gesture.a.y, gesture.b.y)}
+          width={Math.abs(gesture.a.x - gesture.b.x)}
+          height={Math.abs(gesture.a.y - gesture.b.y)}
         />
       )}
     </svg>
   );
 }
 
-function lineFor(q: Quad, type: 'underline' | 'strikeout', toViewport: (p: Point) => Point) {
-  const mid = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-  const l = type === 'underline' ? toViewport(q.p3) : toViewport(mid(q.p1, q.p3));
-  const r = type === 'underline' ? toViewport(q.p4) : toViewport(mid(q.p2, q.p4));
-  return { x1: l.x, y1: l.y, x2: r.x, y2: r.y };
+/** A throw-away annotation that shows the gesture in progress; never stored. */
+function draftAnnotation(g: Gesture, pageId: string, style: { color: ShapeAnnot['color']; width: number; fill?: ShapeAnnot['fill'] }): Annotation | undefined {
+  const base = { id: 'draft', pageId, author: '', createdAt: '', modifiedAt: '', opacity: 1, origin: 'app' as const, color: style.color, width: style.width };
+  if (g.kind === 'ink') return { ...base, type: 'ink', strokes: [g.points] };
+  if (g.kind === 'shape') {
+    const end = g.constrain ? constrainDrag(g.tool, g.a, g.b) : g.b;
+    const isLine = g.tool === 'line' || g.tool === 'arrow';
+    const rect = { x: Math.min(g.a.x, end.x), y: Math.min(g.a.y, end.y), w: Math.abs(g.a.x - end.x), h: Math.abs(g.a.y - end.y) };
+    return {
+      ...base, type: 'shape', shape: g.tool, rect,
+      ...(isLine ? { line: [g.a, end] as [Point, Point] } : style.fill ? { fill: style.fill } : {}),
+    };
+  }
+  return undefined;
 }

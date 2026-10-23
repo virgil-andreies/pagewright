@@ -36,6 +36,8 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
 /* Toolbar */
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
 .toolbar .group { display: flex; gap: 4px; }
+.toolbar .swatch { width: 22px; height: 22px; padding: 0; border-radius: 50%; }
+.toolbar .swatch[aria-pressed='true'], .toolbar .style button[aria-pressed='true'] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .toolbar .status { margin-left: auto; color: var(--muted); font-size: 13px; }
 button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
 button:hover:not(:disabled) { border-color: var(--accent); }
@@ -61,9 +63,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .page-view { position: relative; flex: none; background: #fff; box-shadow: var(--page-shadow); }
 .page-view canvas { display: block; }
 .overlay { position: absolute; inset: 0; }
-.overlay.tool-highlight, .overlay.tool-underline, .overlay.tool-strikeout { cursor: crosshair; }
-.overlay .annot { cursor: pointer; }
-.overlay.tool-highlight .annot, .overlay.tool-underline .annot, .overlay.tool-strikeout .annot { pointer-events: none; }
+.overlay { touch-action: pan-y pinch-zoom; }
+.overlay:is(.tool-highlight, .tool-underline, .tool-strikeout, .tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow) { cursor: crosshair; touch-action: none; }
+.overlay .annot { pointer-events: none; }
+.handle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; cursor: nwse-resize; }
 .selection-outline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 2; }
 .drag-rect { fill: color-mix(in srgb, var(--accent) 15%, transparent); stroke: var(--accent); stroke-width: 1; }
 .empty-state { margin: auto; text-align: center; color: var(--muted); }
