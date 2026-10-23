@@ -14,7 +14,7 @@ Stack: TypeScript, PDF.js (render), pdf-lib fork (write), optional qpdf-wasm, El
 **Non-goals (v1)**
 - Editing existing page text/images/layout.
 - Cryptographic (PAdES) signatures. Visual signatures only.
-- Editing annotations created by other tools (display only).
+- Editing annotations created by other tools. They can be selected, read (with their comment threads) and deleted, but not changed.
 - Preserving bookmarks/outlines on merge.
 - Saving encrypted PDFs (view only).
 - Forms (AcroForm) editing.
@@ -80,6 +80,7 @@ export interface WorkingDocument {
   sources: Record<SourceId, SourceDoc>;
   pages: PageRef[];                              // ordered; deleted pages are removed
   annotations: Record<PageId, Annotation[]>;     // insertion order = z-order
+  removedImported: Record<PageId, string[]>;     // ids (PDF.js, e.g. "20R") of the source page's own annotations the user deleted
   metadata: DocMetadata;
   dirty: boolean;
 }
@@ -206,6 +207,7 @@ export interface RenderDoc {
   getTextContent(index: number): Promise<TextRun[]>;     // raw text runs (search, later)
   renderTextLayer(index: number, opts: TextLayerOpts, signal?: AbortSignal): Promise<void>; // selectable text over the page
   getExistingAnnotations(index: number): Promise<ImportedAnnotMeta[]>;
+  getSourceAnnotations(index: number): Promise<SourceAnnotation[]>;  // the page's own annotations, in detail, for select/read/delete
   destroy(): void;
 }
 
@@ -220,6 +222,7 @@ export interface RenderOpts {
   scale: number;
   extraRotation: 0 | 90 | 180 | 270;   // PageRef.rotation
   withAnnotations: 'none' | 'source';  // never render our own via PDF.js; we draw an overlay
+  hideAnnotations?: string[];          // source annotation ids to leave out of the picture (the deleted ones)
   target: HTMLCanvasElement | OffscreenCanvas;
 }
 
@@ -278,6 +281,8 @@ Annotation mapping:
 | note | /Text | standard icon drawn in AP |
 | freetext | /FreeText | standard PDF font (Helvetica, Times or Courier, WinAnsi); wrapped text in AP; `/C` left out (it would be drawn as a background); `/Contents` is the text |
 | stamp | /Stamp | image XObject or vector paths in AP |
+
+**Annotations that came with the source file.** They are drawn by PDF.js in the page image and are never re-drawn or re-written by us. To let the user select, read and delete them, `getSourceAnnotations` reports each one in detail (read in the background after opening) and `importedAnnotations` maps it to our types with `origin: 'imported'`: replies are folded into the parent's comment thread; links, form fields and popups are not selectable. Deleting one records its id, and its replies' ids, in `WorkingDocument.removedImported` for that page instance (so a duplicated page has its own set; the command is undoable). On screen the deleted annotations are left out of the page image with PDF.js's `operationsFilter`, which skips the operations between that annotation's `beginAnnotation(id)` and `endAnnotation`. On save, `copyPageWithout` takes them (plus their popups and replies) out of the *source page's* `/Annots` before the page is copied, so nothing of them, including comment text, reaches the output.
 
 Common entries on every annotation: `/Rect`, `/F` (print flag = 4), `/NM` (annot id), `/T` (author), `/M`, `/CreationDate`, `/C`, `/CA`, `/Contents` (comment text). Replies are `/Text` annotations with `/IRT` pointing at the parent and `/RT /R`.
 

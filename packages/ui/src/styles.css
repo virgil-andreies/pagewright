@@ -133,6 +133,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .comments .new-note { border: 1px solid var(--accent); border-radius: 8px; padding: 0 10px 8px; margin-bottom: 12px; }
 .threads, .replies { list-style: none; margin: 0; padding: 0; }
 .thread { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.origin { color: var(--muted); }
 .thread.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .thread-head { display: flex; gap: 6px; align-items: baseline; border: none; background: none; padding: 0; width: 100%; text-align: left; cursor: pointer; }
 .thread-head span { color: var(--muted); font-size: 12px; }

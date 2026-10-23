@@ -37,10 +37,13 @@ function Reply({ thread, reply }: { thread: Thread; reply: { id: string; author:
   const { store } = useUi();
   const [editing, setEditing] = useState(false);
   const { pageId, annot } = thread;
+  const readOnly = annot.origin === 'imported';
   return (
     <li className="reply">
-      <div className="meta"><strong>{reply.author}</strong> <time>{when(reply.createdAt)}</time></div>
-      {editing ? (
+      <div className="meta"><strong>{reply.author}</strong> {reply.createdAt && <time>{when(reply.createdAt)}</time>}</div>
+      {readOnly ? (
+        <p>{reply.text}</p>
+      ) : editing ? (
         <Composer
           label="Edit reply" initial={reply.text} submitLabel="Save" clearOnSubmit={false} autoFocus
           onSubmit={(t) => (store.editReply(pageId, annot.id, reply.id, t), setEditing(false))}
@@ -64,6 +67,8 @@ function ThreadView({ thread, selected }: { thread: Thread; selected: boolean })
   const [editing, setEditing] = useState(false);
   const { pageId, pageIndex, annot } = thread;
   const comment = annot.comment;
+  // Annotations that were already in the file can be read and deleted, but not edited or replied to.
+  const readOnly = annot.origin === 'imported';
 
   const open = () => {
     store.setTool('select');
@@ -76,8 +81,18 @@ function ThreadView({ thread, selected }: { thread: Thread; selected: boolean })
       <button className="thread-head" onClick={open} aria-label={`${annotationName(annot)} on page ${pageIndex + 1}`}>
         <strong>{annotationName(annot)}</strong> <span>page {pageIndex + 1}</span>
       </button>
-      <div className="meta"><strong>{annot.author}</strong> <time>{when(annot.modifiedAt)}</time></div>
-      {editing ? (
+      <div className="meta">
+        <strong>{annot.author}</strong> {annot.modifiedAt && <time>{when(annot.modifiedAt)}</time>}
+        {readOnly && <span className="origin"> · from the original file</span>}
+      </div>
+      {readOnly ? (
+        <>
+          {comment?.text && <p className="body">{comment.text}</p>}
+          <div className="row-actions">
+            <button onClick={() => store.deleteAnnotation(pageId, annot.id)}>{annot.type === 'note' ? 'Delete note' : 'Delete annotation'}</button>
+          </div>
+        </>
+      ) : editing ? (
         <Composer
           label="Edit comment" initial={comment?.text ?? ''} submitLabel="Save" clearOnSubmit={false} autoFocus
           onSubmit={(t) => (store.setComment(pageId, annot.id, t), setEditing(false))}
@@ -101,7 +116,7 @@ function ThreadView({ thread, selected }: { thread: Thread; selected: boolean })
           {comment.replies.map((r) => <Reply key={r.id} thread={thread} reply={r} />)}
         </ul>
       )}
-      {comment && <ReplyBox thread={thread} />}
+      {comment && !readOnly && <ReplyBox thread={thread} />}
     </li>
   );
 }
@@ -134,12 +149,12 @@ function AuthorField() {
 
 export function CommentsPanel() {
   const { store } = useUi();
-  const { doc, ui } = useSnapshot();
-  const threads = listThreads(doc);
+  const { doc, ui, imported } = useSnapshot();
+  const threads = listThreads(doc, imported);
   const selectedId = ui.selectedAnnot?.id;
 
   // Offer to comment on the selected annotation when it has no comment yet (notes always have one).
-  const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id);
+  const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id); // (originals are read-only: no "add comment")
   // Notes always have a comment; a text box's text already lives in its own /Contents.
   const canAdd = sel && !sel.comment && sel.type !== 'note' && sel.type !== 'freetext' ? sel : undefined;
   const draftPage = ui.draftNote && doc.pages.findIndex((p) => p.id === ui.draftNote!.pageId) + 1;

@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import { AppFailure, type PdfRenderer, type PdfWriter, type RenderDoc } from '@pagewright/engine';
+import type { SourceAnnotation } from '@pagewright/core';
 import type { PickedFile, Platform } from '@pagewright/platform';
 import { AppStore } from '../src/store';
 
@@ -8,10 +9,10 @@ export function file(name: string, content = 'x'): PickedFile {
   return { name, size: bytes.length, read: async () => bytes };
 }
 
-export function fakeDoc(sourceId: string, pageCount: number): RenderDoc {
+export function fakeDoc(sourceId: string, pageCount: number, original: (pageIndex: number) => SourceAnnotation[] = () => []): RenderDoc {
   return {
     sourceId, pageCount, destroy() {}, renderPage: async () => {}, getTextContent: async () => [],
-    getExistingAnnotations: async () => [], renderTextLayer: async () => {},
+    getExistingAnnotations: async () => [], renderTextLayer: async () => {}, getSourceAnnotations: async (i: number) => original(i),
     getPageInfo: async () => ({
       width: 100, height: 100, rotation: 0, mediaBox: { x: 0, y: 0, w: 100, h: 100 }, cropBox: { x: 0, y: 0, w: 100, h: 100 }, userUnit: 1,
     }),
@@ -24,6 +25,8 @@ export interface SetupOpts {
   budgetMB?: number;
   /** Pre-seeds the remembered author name, as if set in an earlier session. */
   author?: string;
+  /** The annotations already in each source page (by page index), as another PDF tool would have left them. */
+  original?: (pageIndex: number) => SourceAnnotation[];
 }
 
 /** An AppStore wired to fakes: a renderer that opens anything, a writer that returns 3 bytes, an in-memory platform. */
@@ -36,7 +39,7 @@ export function setup(opts: SetupOpts = {}) {
       if (opts.password && password !== opts.password) {
         throw new AppFailure(password === undefined ? { code: 'PasswordRequired', sourceId: source.id } : { code: 'WrongPassword' });
       }
-      return fakeDoc(source.id, opts.pages?.[source.name] ?? 3);
+      return fakeDoc(source.id, opts.pages?.[source.name] ?? 3, opts.original);
     }),
   };
   const writer: PdfWriter = { save: vi.fn(async () => (events.push('write'), new Uint8Array([1, 2, 3]))) };

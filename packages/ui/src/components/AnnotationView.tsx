@@ -63,6 +63,8 @@ export function AnnotationView({ annot, geometry, scale, selected }: ViewProps &
     default:
       break; // notes, free text and stamps arrive with their own views
   }
+  // Annotations that were already in the file are drawn by PDF.js in the page image: we only outline them when selected.
+  if (annot.origin === 'imported') body = null;
 
   // Notes keep their icon upright, so their box is measured on screen rather than in page space.
   let outline: { x: number; y: number; w: number; h: number };

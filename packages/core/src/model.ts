@@ -36,6 +36,12 @@ export interface WorkingDocument {
   readonly sources: Readonly<Record<SourceId, SourceDoc>>;
   readonly pages: readonly PageRef[];
   readonly annotations: Readonly<Record<PageId, readonly Annotation[]>>;
+  /**
+   * Annotations that were already in the source PDF (made by other tools) and that the user deleted, per page
+   * instance, by the id PDF.js gives them (for example `20R`). The annotations themselves are not part of the
+   * document: they stay in the source, are drawn by PDF.js, and are only left out when the file is saved.
+   */
+  readonly removedImported: Readonly<Record<PageId, readonly string[]>>;
   readonly metadata: Readonly<DocMetadata>;
   readonly dirty: boolean;
 }
@@ -46,7 +52,7 @@ declare const crypto: { randomUUID(): string };
 export const defaultIdGen: IdGen = () => crypto.randomUUID();
 
 export function emptyDocument(): WorkingDocument {
-  return { sources: {}, pages: [], annotations: {}, metadata: {}, dirty: false };
+  return { sources: {}, pages: [], annotations: {}, removedImported: {}, metadata: {}, dirty: false };
 }
 
 export function normalizeRotation(deg: number): Rotation {

@@ -4,12 +4,16 @@ import {
   type Annotation, type PageGeometry, type PageRef, type Point, type ResizeHandle, type ShapeAnnot, type TextHandle,
 } from '@pagewright/core';
 import { useSnapshot, useUi } from '../react';
+import { hasSelection } from '../selection';
 import type { ShapeTool } from '../store';
 import { AnnotationView, Handles, noteViewportRect } from './AnnotationView';
 import { TextEditor } from './TextEditor';
 
 const EMPTY: readonly Annotation[] = [];
 const MARKUP_TOOLS: readonly string[] = ['highlight', 'underline', 'strikeout'];
+const TEXT_MARKUP: readonly string[] = ['highlight', 'underline', 'strikeout'];
+/** A press that moves less than this before release is a click, not a drag. */
+const CLICK_SLOP_PX = 4;
 const SHAPE_TOOLS: readonly string[] = ['rect', 'ellipse', 'line', 'arrow'];
 /** Drags shorter than this many screen pixels are clicks, not shapes. */
 const MIN_DRAG_PX = 3;
@@ -32,13 +36,18 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
   page: PageRef; geometry: PageGeometry; scale: number; width: number; height: number; children?: ReactNode;
 }) {
   const { store, pages } = useUi();
-  const { doc, ui } = useSnapshot();
+  const { doc, ui, imported: originals } = useSnapshot();
   const annots = doc.annotations[page.id] ?? EMPTY;
+  // What the user can click: the annotations that were already in the file (underneath), then the ones made here.
+  const original = originals[page.id] ?? EMPTY;
+  const clickable = [...original, ...annots];
   const tool = ui.activeTool;
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   /** Set while a press landed on an annotation, so the browser does not also start a text selection. */
   const suppressSelection = useRef(false);
+  /** A press on marked-up text in the Select tool, waiting to see whether it was a click or the start of a text selection. */
+  const markupPress = useRef<{ id: string; at: Point } | null>(null);
   /** A press of the Text or Note tool, waiting for its release. */
   const clickAt = useRef<{ tool: string; pdf: Point; screen: Point } | null>(null);
 
@@ -59,7 +68,7 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
   const toViewport = (p: Point) => pdfToViewport(geometry, scale, p);
 
   const selectedId = ui.selectedAnnot?.pageId === page.id ? ui.selectedAnnot.id : undefined;
-  const selected = annots.find((a) => a.id === selectedId);
+  const selected = clickable.find((a) => a.id === selectedId);
 
   /** Notes are hit on screen (their icon never rotates with the page); everything else in page space. */
   const touches = (a: Annotation, screen: Point, pdf: Point) => {
@@ -72,6 +81,7 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
     if (e.button !== 0) return;
     const p = local(e);
     const pdf = toPdf(p);
+    markupPress.current = null;
     store.commitText(); // clicking anywhere finishes the text being typed
 
     if (tool === 'text' || tool === 'note') {
@@ -92,7 +102,13 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
         setGesture({ kind: 'edit', original: selected, current: selected, from: pdf, handle, moved: false });
         return;
       }
-      const hit = [...annots].reverse().find((a) => touches(a, p, pdf));
+      const hit = [...clickable].reverse().find((a) => touches(a, p, pdf));
+      if (hit && TEXT_MARKUP.includes(hit.type)) {
+        // Marked-up text sits on top of real text, so this press may be the start of selecting that text. Leave it to
+        // the browser (no grab, no move: markup stays on its text) and decide when the button comes up.
+        markupPress.current = { id: hit.id, at: p };
+        return;
+      }
       store.selectAnnotation(hit ? { pageId: page.id, id: hit.id } : undefined);
       // Pressing on an annotation grabs it; pressing anywhere else is left to the browser, which starts selecting text.
       if (hit) suppressSelection.current = true;
@@ -138,8 +154,17 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
     }
   };
 
-  const onUp = () => {
+  const onUp = (e: React.PointerEvent) => {
     suppressSelection.current = false;
+    const press = markupPress.current;
+    markupPress.current = null;
+    if (press) {
+      // A click selects the markup. A drag was a text selection, so the markup stays unselected.
+      const at = local(e);
+      const clicked = Math.hypot(at.x - press.at.x, at.y - press.at.y) < CLICK_SLOP_PX && !hasSelection();
+      store.selectAnnotation(clicked ? { pageId: page.id, id: press.id } : undefined);
+      return;
+    }
     const click = clickAt.current;
     clickAt.current = null;
     if (click && click.tool === tool) {
@@ -201,6 +226,9 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
     >
       {children}
       <svg className="overlay" width={width} height={height}>
+        {original.filter((a) => a.id === selectedId).map((a) => (
+          <AnnotationView key={a.id} annot={a} geometry={geometry} scale={scale} selected />
+        ))}
         {shown.map((a) => (
           <AnnotationView key={a.id} annot={a} geometry={geometry} scale={scale} selected={a.id === selectedId} />
         ))}

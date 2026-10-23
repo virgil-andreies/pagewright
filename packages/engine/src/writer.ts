@@ -1,4 +1,4 @@
-import { PDFDocument, degrees } from '@cantoo/pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, degrees } from '@cantoo/pdf-lib';
 import { memorySource, normalizeRotation, preflight, readAll, type AppError, type SourceId, type WorkingDocument } from '@pagewright/core';
 import { DefaultAnnotationWriter, type AnnotationWriter } from './annotation-writer';
 import type { PdfWriter, Progress, SaveOpts } from './types';
@@ -54,7 +54,7 @@ export class PdfLibWriter implements PdfWriter {
         }
         loaded.set(ref.sourceId, src);
       }
-      const [page] = await out.copyPages(src, [ref.sourceIndex]);
+      const [page] = await copyPageWithout(out, src, ref.sourceIndex, doc.removedImported[ref.id] ?? []);
       if (!page) throw new AppFailure({ code: 'CorruptFile', detail: `page ${ref.sourceIndex} not found` });
 
       // 4. Rotation: /Rotate = (intrinsic + extra) % 360.
@@ -91,5 +91,55 @@ export class PdfLibWriter implements PdfWriter {
     // 8. Verify.
     if (!(await this.verify(bytes, total))) throw new AppFailure({ code: 'SaveVerificationFailed' });
     return bytes;
+  }
+}
+
+/** PDF.js's id for an annotation object: `20R` for object 20, with the generation appended when it is not 0. */
+const annotationId = (ref: PDFRef) => `${ref.objectNumber}R${ref.generationNumber ? ref.generationNumber : ''}`;
+
+/**
+ * Copies one page into `out`, leaving out the annotations the user deleted (`removed`, PDF.js ids). They are
+ * taken out of the source page's /Annots array *before* copying, so nothing about them (appearance streams,
+ * comment text) is carried into the saved file, rather than being left behind as unreachable objects.
+ * Replies to a removed annotation and its popup go with it. The source page is restored afterwards, because
+ * the same page may be copied again (a duplicate) with a different set of removals.
+ */
+export async function copyPageWithout(out: PDFDocument, src: PDFDocument, index: number, removed: readonly string[]) {
+  if (removed.length === 0) return out.copyPages(src, [index]);
+  const node = src.getPage(index).node;
+  const key = PDFName.of('Annots');
+  const original = node.get(key);
+  const annots = node.lookup(key);
+  if (!(annots instanceof PDFArray)) return out.copyPages(src, [index]);
+
+  const entries = annots.asArray();
+  const idAt = (i: number) => (entries[i] instanceof PDFRef ? annotationId(entries[i] as PDFRef) : undefined);
+  const gone = new Set(removed);
+  // Pull in what hangs off the removed annotations, until nothing more joins.
+  for (let changed = true; changed; ) {
+    changed = false;
+    entries.forEach((_, i) => {
+      const id = idAt(i);
+      const dict = annots.lookup(i);
+      if (!id || !(dict instanceof PDFDict)) return;
+      const link = (name: string) => {
+        const v = dict.get(PDFName.of(name));
+        return v instanceof PDFRef ? annotationId(v) : undefined;
+      };
+      const parentGone = [link('IRT'), link('Parent')].some((p) => p && gone.has(p)); // a reply, or a popup of a removed annotation
+      if (!gone.has(id) && parentGone) (gone.add(id), (changed = true));
+      if (gone.has(id)) {
+        const popup = link('Popup');
+        if (popup && !gone.has(popup)) (gone.add(popup), (changed = true));
+      }
+    });
+  }
+
+  const kept = src.context.obj(entries.filter((_, i) => !gone.has(idAt(i) ?? '')));
+  node.set(key, kept);
+  try {
+    return await out.copyPages(src, [index]);
+  } finally {
+    if (original) node.set(key, original);
   }
 }

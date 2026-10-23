@@ -141,6 +141,12 @@ export function check(name: string, ok: boolean, detail = ''): void {
 }
 export const failureCount = () => failures;
 
+/** Empties the downloads folder, so a scenario never mistakes an earlier scenario's file for its own. */
+export function clearDownloads(): void {
+  rmSync(DOWNLOADS, { recursive: true, force: true });
+  mkdirSync(DOWNLOADS, { recursive: true });
+}
+
 /** Waits for a finished download in the downloads folder and returns its path. */
 export async function waitForDownload(timeoutMs = 20000): Promise<string> {
   const end = Date.now() + timeoutMs;

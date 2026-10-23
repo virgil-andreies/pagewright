@@ -1,5 +1,5 @@
 import type { Quad, Rect, Rotation, SourceDoc } from '@pagewright/core';
-import { memorySource, normalizeRotation, readRange, sourceSize } from '@pagewright/core';
+import { memorySource, normalizeRotation, readRange, sourceSize, type Point, type SourceAnnotation } from '@pagewright/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { ImportedAnnotMeta, PageInfo, PdfRenderer, RenderDoc, RenderOpts, TextLayerOpts, TextRun } from './types';
 import { AppFailure } from './writer';
@@ -106,12 +106,16 @@ class PdfJsDoc implements RenderDoc {
     const viewport = page.getViewport({ scale: opts.scale, rotation });
     opts.target.width = Math.ceil(viewport.width);
     opts.target.height = Math.ceil(viewport.height);
-    const task = page.render({
-      canvas: opts.target as HTMLCanvasElement,
-      viewport,
-      // 0 = DISABLE, 1 = ENABLE. Our own annotations are drawn by the UI overlay, never here.
-      annotationMode: opts.withAnnotations === 'source' ? 1 : 0,
-    });
+    // 0 = DISABLE, 1 = ENABLE. Our own annotations are drawn by the UI overlay, never here.
+    const annotationMode = opts.withAnnotations === 'source' ? 1 : 0;
+    let operationsFilter: ((index: number) => boolean) | undefined;
+    if (annotationMode === 1 && opts.hideAnnotations?.length) {
+      // PDF.js wraps each annotation's drawing in begin/end markers carrying its id: skip the deleted ones' ranges.
+      const list = await page.getOperatorList({ annotationMode });
+      const skip = skippedOperations(list.fnArray, list.argsArray, new Set(opts.hideAnnotations), this.pdfjs.OPS.beginAnnotation, this.pdfjs.OPS.endAnnotation);
+      if (skip.size > 0) operationsFilter = (i) => !skip.has(i);
+    }
+    const task = page.render({ canvas: opts.target as HTMLCanvasElement, viewport, annotationMode, ...(operationsFilter ? { operationsFilter } : {}) });
     const onAbort = () => task.cancel();
     signal?.addEventListener('abort', onAbort, { once: true });
     try {
@@ -152,6 +156,11 @@ class PdfJsDoc implements RenderDoc {
       runs.push({ text: item.str, quad: textQuad(item.transform as number[], item.width, item.height) });
     }
     return runs;
+  }
+
+  async getSourceAnnotations(index: number): Promise<SourceAnnotation[]> {
+    const page = await this.doc.getPage(index + 1);
+    return (await page.getAnnotations()).map((a) => toSourceAnnotation(a as unknown as RawAnnotation));
   }
 
   async getExistingAnnotations(index: number): Promise<ImportedAnnotMeta[]> {
@@ -208,4 +217,79 @@ export function pdfjsVerify(renderer: PdfJsRenderer) {
       doc.destroy();
     }
   };
+}
+
+/**
+ * The operation indices to leave out so that the annotations in `hide` are not drawn. PDF.js emits
+ * `beginAnnotation(id, ...)` and `endAnnotation` around each annotation's drawing; everything from a matching
+ * begin to its end (both included) is skipped.
+ */
+export function skippedOperations(
+  fnArray: ArrayLike<number>, argsArray: ArrayLike<unknown>, hide: ReadonlySet<string>, begin: number, end: number,
+): Set<number> {
+  const skip = new Set<number>();
+  let skipping = false;
+  for (let i = 0; i < fnArray.length; i++) {
+    if (fnArray[i] === begin) skipping = hide.has(String((argsArray[i] as unknown[] | undefined)?.[0]));
+    if (skipping) skip.add(i);
+    if (fnArray[i] === end) skipping = false;
+  }
+  return skip;
+}
+
+/** The parts of PDF.js's annotation data we read. Numbers arrive as typed arrays. */
+interface RawAnnotation {
+  id: string;
+  subtype: string;
+  rect: ArrayLike<number>;
+  color?: ArrayLike<number> | null;
+  contentsObj?: { str?: string };
+  titleObj?: { str?: string };
+  creationDate?: string;
+  modificationDate?: string;
+  quadPoints?: ArrayLike<number> | ArrayLike<ArrayLike<number>>;
+  inkLists?: ArrayLike<ArrayLike<number>>;
+  lineCoordinates?: ArrayLike<number>;
+  borderStyle?: { width?: number };
+  inReplyTo?: string | null;
+  replyType?: string | null;
+}
+
+const chunk = (flat: ArrayLike<number>, n: number): number[][] => {
+  const out: number[][] = [];
+  for (let i = 0; i + n <= flat.length; i += n) out.push(Array.from({ length: n }, (_, k) => flat[i + k]!));
+  return out;
+};
+
+/** PDF.js data -> our plain description. Quad points come in PDF order: top-left, top-right, bottom-left, bottom-right. */
+export function toSourceAnnotation(a: RawAnnotation): SourceAnnotation {
+  const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = Array.from(a.rect);
+  const out: SourceAnnotation = {
+    id: a.id,
+    subtype: a.subtype,
+    rect: { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) },
+  };
+  if (a.color && a.color.length >= 3) out.color = { r: a.color[0]! / 255, g: a.color[1]! / 255, b: a.color[2]! / 255 };
+  if (a.contentsObj?.str) out.contents = a.contentsObj.str;
+  if (a.titleObj?.str) out.author = a.titleObj.str;
+  if (a.creationDate) out.created = a.creationDate;
+  if (a.modificationDate) out.modified = a.modificationDate;
+  if (a.borderStyle?.width !== undefined) out.borderWidth = a.borderStyle.width;
+  if (a.inReplyTo) out.inReplyTo = a.inReplyTo;
+  if (a.replyType) out.replyType = a.replyType;
+
+  if (a.quadPoints && a.quadPoints.length > 0) {
+    const first = (a.quadPoints as ArrayLike<unknown>)[0];
+    const quads: number[][] = typeof first === 'number' ? chunk(a.quadPoints as ArrayLike<number>, 8) : Array.from(a.quadPoints as ArrayLike<ArrayLike<number>>, (q) => Array.from(q));
+    const pt = (q: number[], i: number): Point => ({ x: q[i]!, y: q[i + 1]! });
+    out.quads = quads.filter((q) => q.length >= 8).map((q): Quad => ({ p1: pt(q, 0), p2: pt(q, 2), p3: pt(q, 4), p4: pt(q, 6) }));
+  }
+  if (a.inkLists?.length) {
+    out.strokes = Array.from(a.inkLists, (flat) => chunk(flat, 2).map(([x, y]): Point => ({ x: x!, y: y! })));
+  }
+  if (a.lineCoordinates && a.lineCoordinates.length >= 4) {
+    const [lx1, ly1, lx2, ly2] = Array.from(a.lineCoordinates);
+    out.line = [{ x: lx1!, y: ly1! }, { x: lx2!, y: ly2! }];
+  }
+  return out;
 }

@@ -8,11 +8,14 @@ export interface Thread {
   annot: Annotation;
 }
 
-/** Threads in reading order: page by page, and within a page in the order they were added. */
-export function listThreads(doc: WorkingDocument): Thread[] {
+/**
+ * Threads in reading order: page by page; on a page, the annotations that were already in the file come first,
+ * then the ones made here in the order they were added.
+ */
+export function listThreads(doc: WorkingDocument, imported: Readonly<Record<PageId, readonly Annotation[]>> = {}): Thread[] {
   const threads: Thread[] = [];
   doc.pages.forEach((page, pageIndex) => {
-    for (const annot of doc.annotations[page.id] ?? []) {
+    for (const annot of [...(imported[page.id] ?? []), ...(doc.annotations[page.id] ?? [])]) {
       if (annot.type === 'note' || annot.comment) threads.push({ pageId: page.id, pageIndex, annot });
     }
   });

@@ -48,8 +48,12 @@ export function deletePages(ids: readonly PageId[]): Command {
     const sel = pick(d, ids);
     if (sel.size === 0) return d;
     const annotations = { ...d.annotations };
-    for (const id of sel) delete annotations[id];
-    return { ...d, pages: d.pages.filter((p) => !sel.has(p.id)), annotations };
+    const removedImported = { ...d.removedImported };
+    for (const id of sel) {
+      delete annotations[id];
+      delete removedImported[id];
+    }
+    return { ...d, pages: d.pages.filter((p) => !sel.has(p.id)), annotations, removedImported };
   });
 }
 
@@ -59,6 +63,7 @@ export function duplicatePages(ids: readonly PageId[], newId: IdGen = defaultIdG
     const sel = pick(d, ids);
     if (sel.size === 0) return d;
     const annotations: Record<PageId, readonly Annotation[]> = { ...d.annotations };
+    const removedImported: Record<PageId, readonly string[]> = { ...d.removedImported };
     const pages: PageRef[] = [];
     for (const p of d.pages) {
       pages.push(p);
@@ -69,8 +74,11 @@ export function duplicatePages(ids: readonly PageId[], newId: IdGen = defaultIdG
       if (src?.length) {
         annotations[copyId] = src.map((a) => ({ ...a, id: newId(), pageId: copyId }));
       }
+      // The copy starts with the same original annotations removed as the page it was copied from.
+      const gone = d.removedImported[p.id];
+      if (gone?.length) removedImported[copyId] = gone;
     }
-    return { ...d, pages, annotations };
+    return { ...d, pages, annotations, removedImported };
   });
 }
 
@@ -161,6 +169,20 @@ export function reorderAnnotation(pageId: PageId, annotId: AnnotId, toIndex: num
   });
 }
 
+/**
+ * Deletes annotations that came with the source PDF. `ids` are PDF.js annotation ids; a page remembers them so
+ * the save leaves them out. Asking again for an id already removed changes nothing.
+ */
+export function removeImportedAnnotations(pageId: PageId, ids: readonly string[]): Command {
+  return command('Delete annotation', (d) => {
+    if (!d.pages.some((p) => p.id === pageId)) return d;
+    const have = new Set(d.removedImported[pageId] ?? []);
+    const fresh = ids.filter((id) => !have.has(id));
+    if (fresh.length === 0) return d;
+    return { ...d, removedImported: { ...d.removedImported, [pageId]: [...(d.removedImported[pageId] ?? []), ...new Set(fresh)] } };
+  });
+}
+
 /** Several commands as one undo step, e.g. one highlight per page for a selection that spans pages. */
 export function batch(label: string, commands: readonly Command[]): Command {
   return command(label, (d) => commands.reduce((doc, c) => c.apply(doc), d));
@@ -178,6 +200,7 @@ export function selectPages(doc: WorkingDocument, ids: readonly PageId[]): Worki
     pages,
     sources: Object.fromEntries(Object.entries(doc.sources).filter(([id]) => usedSources.has(id))),
     annotations: Object.fromEntries(Object.entries(doc.annotations).filter(([id]) => sel.has(id))),
+    removedImported: Object.fromEntries(Object.entries(doc.removedImported).filter(([id]) => sel.has(id))),
   };
 }
 

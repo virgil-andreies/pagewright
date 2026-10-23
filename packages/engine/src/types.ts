@@ -1,4 +1,4 @@
-import type { Annotation, Rect, Quad, Rotation, SourceDoc, SourceId, WorkingDocument } from '@pagewright/core';
+import type { Annotation, Rect, Quad, Rotation, SourceAnnotation, SourceDoc, SourceId, WorkingDocument } from '@pagewright/core';
 
 // ---- Renderer (section 5.1); PDF.js implementation lands separately ------------------
 
@@ -21,6 +21,8 @@ export interface RenderDoc {
    */
   renderTextLayer(index: number, opts: TextLayerOpts, signal?: AbortSignal): Promise<void>;
   getExistingAnnotations(index: number): Promise<ImportedAnnotMeta[]>;
+  /** The annotations already in the source page, in detail, for selecting, reading and deleting them. */
+  getSourceAnnotations(index: number): Promise<SourceAnnotation[]>;
   destroy(): void;
 }
 
@@ -38,6 +40,8 @@ export interface RenderOpts {
   scale: number;
   extraRotation: Rotation;
   withAnnotations: 'none' | 'source';
+  /** Annotations from the source page to leave out of the picture (PDF.js ids such as `20R`): the ones the user deleted. */
+  hideAnnotations?: readonly string[];
   target: HTMLCanvasElement | OffscreenCanvas;
 }
 

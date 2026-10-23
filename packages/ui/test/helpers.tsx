@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, vi } from 'vitest';
-import type { PdfRenderer, PdfWriter, RenderDoc } from '@pagewright/engine';
+import type { PdfRenderer, PdfWriter, RenderDoc, RenderOpts } from '@pagewright/engine';
+import type { SourceAnnotation } from '@pagewright/core';
 import type { PickedFile, Platform } from '@pagewright/platform';
 import { AppShell, AppStore } from '../src';
 
@@ -24,13 +25,14 @@ Element.prototype.scrollIntoView = () => {};
 
 export const info = { width: 200, height: 300, rotation: 0 as const, mediaBox: { x: 0, y: 0, w: 200, h: 300 }, cropBox: { x: 0, y: 0, w: 200, h: 300 }, userUnit: 1 };
 
-export function setup(pageCount = 3) {
-  const renderPage = vi.fn(async () => {});
+export function setup(pageCount = 3, original: (pageIndex: number) => SourceAnnotation[] = () => []) {
+  const renderPage = vi.fn(async (_index: number, _opts: RenderOpts, _signal?: AbortSignal) => {});
   const renderer: PdfRenderer = {
     open: async (s) =>
       ({
         sourceId: s.id, pageCount, destroy() {}, renderPage, getPageInfo: async () => info,
         getTextContent: async () => [], getExistingAnnotations: async () => [], renderTextLayer: async () => {},
+        getSourceAnnotations: async (i: number) => original(i),
       }) satisfies RenderDoc,
   };
   const writer: PdfWriter = { save: vi.fn(async () => new Uint8Array([1])) };

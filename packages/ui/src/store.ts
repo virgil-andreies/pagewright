@@ -1,6 +1,6 @@
 import {
-  batch, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
-  type Annotation, type AnnotComment, type AnnotId, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
+  batch, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  type Annotation, type AnnotComment, type AnnotId, type SourceAnnotation, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
 import type { PickedFile, Platform } from '@pagewright/platform';
@@ -68,6 +68,11 @@ export interface UiState {
 
 export interface Snapshot {
   doc: WorkingDocument;
+  /**
+   * The annotations that were already in each page's source file, minus the ones the user deleted, in the editor's
+   * own types (all with `origin: 'imported'`). They are selectable, but PDF.js draws them, not us.
+   */
+  imported: Readonly<Record<PageId, readonly Annotation[]>>;
   ui: UiState;
   canUndo: boolean;
   canRedo: boolean;
@@ -163,6 +168,7 @@ export class AppStore {
       const source: SourceDoc = { ...base, pageCount: rd.pageCount };
       this.renderDocs.set(id, rd);
       this.history.execute(addSource(source, undefined, this.newId));
+      void this.loadSourceAnnotations(id, source.pageCount);
       // Opening is lazy and always fine; saving needs far more memory. Say so now, not at Save.
       const tooBig = preflight(this.history.current, { memoryBudgetMB: this.deps.platform.device.memoryBudgetMB }).errors.find(
         (e) => e.code === 'OutOfMemoryRisk',
@@ -424,6 +430,7 @@ export class AppStore {
 
   /** Removes one annotation (comments and replies go with it). */
   deleteAnnotation(pageId: PageId, annotId: AnnotId): void {
+    if (isImportedId(annotId)) return this.deleteImported(pageId, annotId);
     if (this.ui.selectedAnnot?.id === annotId) this.patch({ selectedAnnot: undefined });
     this.history.execute(removeAnnotation(pageId, annotId));
   }
@@ -478,6 +485,7 @@ export class AppStore {
   deleteSelectedAnnotation(): void {
     const sel = this.ui.selectedAnnot;
     if (!sel) return;
+    if (isImportedId(sel.id)) return this.deleteImported(sel.pageId, sel.id);
     this.patch({ selectedAnnot: undefined });
     this.history.execute(removeAnnotation(sel.pageId, sel.id));
   }
@@ -626,7 +634,12 @@ export class AppStore {
     const max = Math.max(0, ids.size - 1);
     if (this.ui.currentPage > max) patch.currentPage = max;
     const sa = this.ui.selectedAnnot;
-    if (sa && !this.history.current.annotations[sa.pageId]?.some((a) => a.id === sa.id)) patch.selectedAnnot = undefined;
+    if (sa) {
+      const stillThere = isImportedId(sa.id)
+        ? this.importedView()[sa.pageId]?.some((a) => a.id === sa.id)
+        : this.history.current.annotations[sa.pageId]?.some((a) => a.id === sa.id);
+      if (!stillThere) patch.selectedAnnot = undefined;
+    }
     this.ui = { ...this.ui, ...patch };
   }
 
@@ -638,9 +651,61 @@ export class AppStore {
   private rebuild(): void {
     const h = this.history;
     this.snap = {
-      doc: h.current, ui: this.ui, canUndo: h.canUndo, canRedo: h.canRedo,
+      doc: h.current, imported: this.importedView(), ui: this.ui, canUndo: h.canUndo, canRedo: h.canRedo,
       undoLabel: h.undoLabel, redoLabel: h.redoLabel,
     };
+  }
+
+  // ---- Annotations that came with the source files -------------------------------------------------
+
+  /** Raw annotations per source, per source page index. Facts about the files, so not part of the undo history. */
+  private sourceAnnots = new Map<SourceId, Map<number, SourceAnnotation[]>>();
+  private sourceAnnotsVersion = 0;
+  private importedCache?: { pages: unknown; removed: unknown; version: number; value: Record<PageId, readonly Annotation[]> };
+
+  /** Reads every page's annotations in the background, a page at a time so the UI is never held up. */
+  private async loadSourceAnnotations(sourceId: SourceId, pageCount: number): Promise<void> {
+    const rd = this.renderDocs.get(sourceId);
+    if (!rd) return;
+    const perPage = new Map<number, SourceAnnotation[]>();
+    this.sourceAnnots.set(sourceId, perPage);
+    for (let i = 0; i < pageCount; i++) {
+      try {
+        const list = await rd.getSourceAnnotations(i);
+        if (list.length > 0) perPage.set(i, list);
+      } catch {
+        /* a page whose annotations cannot be read simply shows none */
+      }
+      if (i % 10 === 9 || i === pageCount - 1) {
+        this.sourceAnnotsVersion++;
+        this.emit();
+      }
+    }
+  }
+
+  private importedView(): Record<PageId, readonly Annotation[]> {
+    const doc = this.history.current;
+    const c = this.importedCache;
+    if (c && c.pages === doc.pages && c.removed === doc.removedImported && c.version === this.sourceAnnotsVersion) return c.value;
+    const value: Record<PageId, readonly Annotation[]> = {};
+    for (const page of doc.pages) {
+      const raw = this.sourceAnnots.get(page.sourceId)?.get(page.sourceIndex);
+      if (!raw?.length) continue;
+      const gone = new Set(doc.removedImported[page.id] ?? []);
+      const list = importedAnnotations(raw.filter((a) => !gone.has(a.id)), page.id);
+      if (list.length > 0) value[page.id] = list;
+    }
+    this.importedCache = { pages: doc.pages, removed: doc.removedImported, version: this.sourceAnnotsVersion, value };
+    return value;
+  }
+
+  /** Deletes an original annotation and the replies under it. They stay in the source file and are left out on save. */
+  private deleteImported(pageId: PageId, annotId: AnnotId): void {
+    const page = this.history.current.pages.find((p) => p.id === pageId);
+    const raw = page && this.sourceAnnots.get(page.sourceId)?.get(page.sourceIndex);
+    if (!raw || !this.importedView()[pageId]?.some((a) => a.id === annotId)) return; // not there (or already deleted)
+    if (this.ui.selectedAnnot?.id === annotId) this.patch({ selectedAnnot: undefined });
+    this.history.execute(removeImportedAnnotations(pageId, idsToRemove(raw, annotId)));
   }
 
   private emit(): void {

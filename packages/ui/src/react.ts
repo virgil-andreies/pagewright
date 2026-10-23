@@ -63,6 +63,8 @@ export function usePageRender(
   enabled = true,
 ): { rendered: boolean; error?: Error } {
   const { store, queue } = useUi();
+  // Original annotations the user deleted are drawn by PDF.js into the image, so they are left out of it.
+  const hideKey = (useSnapshot().doc.removedImported[page.id] ?? []).join(',');
   const [state, setState] = useState<{ rendered: boolean; error?: Error }>({ rendered: false });
   const priorityRef = useRef(priority);
   priorityRef.current = priority;
@@ -78,10 +80,14 @@ export function usePageRender(
     queue
       .enqueue(
         {
-          key: `${page.id}@${page.rotation}x${scale.toFixed(3)}`,
+          key: `${page.id}@${page.rotation}x${scale.toFixed(3)}${hideKey ? `-${hideKey}` : ''}`,
           priority: priorityRef.current,
           run: (signal) =>
-            rd.renderPage(page.sourceIndex, { scale: scale * dpr, extraRotation: page.rotation, withAnnotations: 'source', target: buffer }, signal),
+            rd.renderPage(
+              page.sourceIndex,
+              { scale: scale * dpr, extraRotation: page.rotation, withAnnotations: 'source', target: buffer, ...(hideKey ? { hideAnnotations: hideKey.split(',') } : {}) },
+              signal,
+            ),
         },
         ac.signal,
       )
@@ -97,7 +103,7 @@ export function usePageRender(
         if (!(e instanceof RenderCancelled)) setState({ rendered: false, error: e as Error });
       });
     return () => ac.abort();
-  }, [store, queue, canvasRef, page.id, page.sourceId, page.sourceIndex, page.rotation, scale, enabled]);
+  }, [store, queue, canvasRef, page.id, page.sourceId, page.sourceIndex, page.rotation, scale, enabled, hideKey]);
 
   return state;
 }

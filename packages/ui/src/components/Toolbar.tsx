@@ -87,11 +87,11 @@ function StyleControls() {
 
 export function Toolbar() {
   const { store, pages } = useUi();
-  const { doc, ui, canUndo, canRedo, undoLabel, redoLabel } = useSnapshot();
+  const { doc, ui, imported, canUndo, canRedo, undoLabel, redoLabel } = useSnapshot();
   const hasPages = doc.pages.length > 0;
   const hasSel = ui.selection.size > 0;
   const busy = !!ui.busy;
-  const threadCount = listThreads(doc).length;
+  const threadCount = listThreads(doc, imported).length;
 
   const open = async () => store.addFiles(await store.platform.fs.pickFiles({ multiple: true, accept: ['.pdf', 'application/pdf'] }));
 

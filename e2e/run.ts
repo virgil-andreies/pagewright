@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName } from '@cantoo/pdf-lib';
 import { textWidth } from '../packages/core/src';
 import {
-  SHOTS, check, chooseTool, clickButton, clickOnPage, count, doubleClickOnPage, dragOnPage, failureCount, openPdf, sleep, start, waitForDownload,
+  SHOTS, check, chooseTool, clearDownloads, clickButton, clickOnPage, count, doubleClickOnPage, dragOnPage, failureCount, openPdf, sleep, start, waitForDownload,
   type Session,
 } from './harness';
 
@@ -141,6 +141,93 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
       const rp = await s.page.$$eval(`.page-view:nth-of-type(3) ${ANNOT} polygon`, (els) => els.map((e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; }));
       check('on a rotated page the highlight sits on the selected words', rp.length === 1 && near(rp[0]!.x, first.x) && near(rp[0]!.w, first.w) && near(rp[0]!.y, first.y, 3), `${JSON.stringify(rp)} vs ${JSON.stringify(first)}`);
     }
+  },
+
+  async original(s) {
+    console.log('Annotations that were already in the file');
+    await openPdf(s.page, SAMPLE);
+    await chooseTool(s.page, 'Select');
+    /** How many clearly yellow pixels (the sample's highlight colour) the page image has inside a screen rectangle. */
+    const yellow = (rect: { x: number; y: number; w: number; h: number }) =>
+      s.page.evaluate((r) => {
+        const c = document.querySelector('.page-view canvas') as HTMLCanvasElement;
+        const b = c.getBoundingClientRect();
+        const k = c.width / b.width;
+        const d = c.getContext('2d')!.getImageData(Math.max(0, Math.round((r.x - b.x) * k)), Math.round((r.y - b.y) * k), Math.round(r.w * k), Math.round(r.h * k)).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i]! > 230 && d[i + 1]! > 190 && d[i + 2]! < 150) n++;
+        return n;
+      }, rect);
+    const selectedText = () => s.page.evaluate(() => window.getSelection()?.toString() ?? '');
+    const threads = () => s.page.$$eval('.thread .body', (e) => e.map((x) => x.textContent));
+
+    const fox = (await wordRectOf(s, 'fox'))!;
+    const area = { x: fox.x - 20, y: fox.y, w: fox.w + 40, h: fox.h };
+    const before = await yellow(area);
+    check('the sample page image shows the existing yellow highlight', before > 200, `${before} yellow pixels`);
+
+    // Selecting it.
+    await s.page.mouse.click(fox.x + fox.w / 2, fox.y + fox.h / 2);
+    await sleep(100);
+    check('clicking the existing highlight selects it', (await count(s.page, `${ANNOT}.selected`)) === 1);
+    check('and does not start selecting text underneath it', (await selectedText()) === '', JSON.stringify(await selectedText()));
+    check('it has no resize handles (it is not editable)', (await count(s.page, 'svg.overlay [data-handle]')) === 0);
+
+    // Its comment and the thread of a note are in the comments panel, read-only.
+    await s.page.evaluate(() => ([...document.querySelectorAll('button')].find((x) => x.textContent?.startsWith('Comments')) as HTMLButtonElement).click()); // its label carries a count
+    await sleep(150);
+    check('its comment is in the comments panel', (await threads()).includes('Highlight with a comment'), JSON.stringify(await threads()));
+    check('the note thread from the file is there with its replies, marked as original', (await s.page.$$eval('.thread .reply', (e) => e.length)) >= 2 && (await s.page.$$eval('.thread .origin', (e) => e.length)) >= 1);
+    check('they cannot be edited or replied to', (await count(s.page, '.thread[data-annot-id^="pdf:"] textarea')) === 0);
+
+    // Opening the panel narrowed the viewer and moved the page sideways, so measure the highlight again.
+    const foxNow = (await wordRectOf(s, 'fox'))!;
+    const areaNow = { x: foxNow.x - 20, y: foxNow.y, w: foxNow.w + 40, h: foxNow.h };
+    const total = await yellow(areaNow);
+    check('the highlight is still in the page image after the panel opened', total > 200, `${total}`);
+    // Selecting it again (the earlier selection is still there), then deleting: gone from the image, others stay.
+    await s.page.keyboard.press('Delete');
+    await sleep(900); // the page image is rendered again
+    const after = await yellow(areaNow);
+    // A few anti-aliased text pixels can look yellowish, so allow a sliver rather than demanding exactly none.
+    check('Delete takes the highlight out of the page image', after < total * 0.03, `${after} of ${total} yellow pixels left`);
+    check('and out of the comments panel', !(await threads()).includes('Highlight with a comment'));
+    await s.page.screenshot({ path: resolve(SHOTS, 'original-deleted.png') });
+
+    await ctrl(s, 'z');
+    await sleep(900);
+    check('Ctrl+Z brings it back in the image', (await yellow(areaNow)) > total * 0.9);
+    await ctrl(s, 'y');
+    await sleep(900);
+    check('Ctrl+Y removes it again', (await yellow(areaNow)) < total * 0.03);
+
+    // Delete a note thread from the panel.
+    const note = await s.page.$('.thread[data-annot-id^="pdf:"] .row-actions button');
+    const noteThread = await s.page.$$eval('.thread[data-annot-id^="pdf:"]', (els) => els.map((e) => ({ id: e.getAttribute('data-annot-id'), text: e.textContent })));
+    check('the panel lists the original notes', noteThread.some((t) => t.text?.includes('A note with a short thread.')), JSON.stringify(noteThread.map((t) => t.id)));
+    void note;
+    await s.page.evaluate(() => {
+      const t = [...document.querySelectorAll('.thread[data-annot-id^="pdf:"]')].find((e) => e.textContent?.includes('A note with a short thread.'))!;
+      (t.querySelector('.row-actions button') as HTMLButtonElement).click();
+    });
+    await sleep(300);
+    check('Delete note removes the note thread from the panel', !(await threads()).includes('A note with a short thread.'));
+
+    // Save, and look at what was written.
+    await clickButton(s.page, 'Save');
+    const file = await waitForDownload();
+    const saved = await PDFDocument.load(readFileSync(file));
+    const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    const subtypes = annots.asArray().map((_, i) => (annots.lookup(i, PDFDict).lookup(PDFName.of('Subtype')) as PDFName).decodeText());
+    const strings: string[] = [];
+    for (const [, obj] of saved.context.enumerateIndirectObjects()) {
+      if (!(obj instanceof PDFDict)) continue;
+      for (const [, v] of obj.entries()) if (v instanceof PDFHexString) strings.push(v.decodeText());
+    }
+    check('the saved page lost the highlight, the note and its two replies', !subtypes.includes('Highlight') && subtypes.length === 3, subtypes.join(','));
+    check('and kept the underline, strikeout and the other note', subtypes.includes('Underline') && subtypes.includes('StrikeOut') && strings.includes('The speech-bubble icon.'));
+    check('nothing of the deleted comments is left anywhere in the file', !strings.some((t) => /Highlight with a comment|A note with a short thread|Agreed, and here is a reply|And a second reply/.test(t)), JSON.stringify(strings));
+    check('the other pages are untouched', saved.getPageCount() === 5);
   },
 
   async text(s) {
@@ -330,6 +417,7 @@ const session = await start();
 try {
   for (const [name, run] of Object.entries(scenarios)) {
     if (wanted && wanted !== name) continue;
+    clearDownloads();
     await session.page.goto(session.url);
     try {
       await run(session);
