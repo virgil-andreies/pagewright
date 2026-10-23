@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PDFDocument } from '@cantoo/pdf-lib';
 import {
-  History, addAnnotation, addSource, emptyDocument, rectToQuad, rotatePages,
+  History, memorySource, blobSource, readAll, sourceSize, addAnnotation, addSource, emptyDocument, rectToQuad, rotatePages,
   type HighlightAnnot, type SourceDoc, type WorkingDocument,
 } from '@pagewright/core';
 import {
@@ -41,7 +41,7 @@ class FakeWorker implements WorkerLike {
 async function source(id: string, pages: number): Promise<SourceDoc> {
   const pdf = await PDFDocument.create();
   for (let i = 0; i < pages; i++) pdf.addPage([200, 300]);
-  return { id, name: `${id}.pdf`, bytes: await pdf.save(), pageCount: pages, isEncrypted: false, hasDigitalSignature: false };
+  return { id, name: `${id}.pdf`, data: memorySource(await pdf.save()), pageCount: pages, isEncrypted: false, hasDigitalSignature: false };
 }
 
 async function build(...sources: SourceDoc[]): Promise<WorkingDocument> {
@@ -92,12 +92,21 @@ describe('WorkerPdfWriter', () => {
 
   it('leaves the callers source bytes intact and sends the worker its own copy', async () => {
     const src = await source('a', 1);
-    const before = src.bytes.slice();
+    const before = (await readAll(src.data)).slice();
     const { writer, workers } = make();
     await writer.save(await build(src), defaultSaveOpts);
-    expect(src.bytes.byteLength).toBeGreaterThan(0); // not detached by the transfer
-    expect(src.bytes).toEqual(before);
-    expect(workers[0]!.received!.doc.sources['a']!.bytes).toEqual(before);
+    expect(sourceSize(src.data)).toBeGreaterThan(0); // not detached by the transfer
+    expect(await readAll(src.data)).toEqual(before);
+    expect(await readAll(workers[0]!.received!.doc.sources['a']!.data)).toEqual(before);
+  });
+
+  it('passes blob-backed sources by reference instead of copying their bytes', async () => {
+    const mem = await source('a', 2);
+    const src: SourceDoc = { ...mem, data: blobSource(new Blob([(await readAll(mem.data)) as BlobPart])) };
+    const { writer, workers } = make();
+    const bytes = await writer.save(await build(src), defaultSaveOpts);
+    expect(workers[0]!.received!.doc.sources['a']!.data.kind).toBe('blob');
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2);
   });
 
   it('does not send sources that no longer contribute pages', async () => {
@@ -122,14 +131,14 @@ describe('WorkerPdfWriter', () => {
   });
 
   it('applies the memory guard before copying anything', async () => {
-    const big = { ...(await source('a', 1)), bytes: new Uint8Array(3 * 1024 * 1024) };
+    const big = { ...(await source('a', 1)), data: memorySource(new Uint8Array(3 * 1024 * 1024)) };
     const { writer, workers } = make({ memoryBudgetMB: 1 });
     await expect(writer.save(await build(big), defaultSaveOpts)).rejects.toMatchObject({ error: { code: 'OutOfMemoryRisk' } });
     expect(workers).toHaveLength(0);
   });
 
   it('maps worker-side AppErrors back to AppFailure', async () => {
-    const bad = { ...(await source('a', 1)), bytes: new TextEncoder().encode('not a pdf') };
+    const bad = { ...(await source('a', 1)), data: memorySource(new TextEncoder().encode('not a pdf')) };
     const { writer } = make();
     const err = await writer.save(await build(bad), defaultSaveOpts).catch((e) => e);
     expect(err).toBeInstanceOf(AppFailure);

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  History, addAnnotation, addSource, emptyDocument, preflight, reorderAnnotation, transformQuad, rectToQuad,
+  History, memorySource, addAnnotation, addSource, emptyDocument, preflight, reorderAnnotation, transformQuad, rectToQuad,
   type HighlightAnnot, type SourceDoc,
 } from '../src';
 
 const src = (id: string, o: Partial<SourceDoc> = {}): SourceDoc => ({
-  id, name: id, bytes: new Uint8Array(0), pageCount: 1, isEncrypted: false, hasDigitalSignature: false, ...o,
+  id, name: id, data: memorySource(new Uint8Array(0)), pageCount: 1, isEncrypted: false, hasDigitalSignature: false, ...o,
 });
 const docWith = (...s: SourceDoc[]) => {
   const h = new History(emptyDocument());
@@ -27,7 +27,7 @@ describe('preflight', () => {
     expect(r.notices).toContain('SignaturesInvalidated');
   });
   it('refuses over the memory budget', () => {
-    const r = preflight(docWith(src('a', { bytes: new Uint8Array(3 * 1024 * 1024) })), opts);
+    const r = preflight(docWith(src('a', { data: memorySource(new Uint8Array(3 * 1024 * 1024)) })), opts);
     expect(r.errors).toEqual([{ code: 'OutOfMemoryRisk', estimateMB: 3 }]);
   });
   it('notes dropped outlines on merge', () => {

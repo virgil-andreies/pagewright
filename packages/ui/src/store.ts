@@ -1,8 +1,8 @@
 import {
-  History, addAnnotation, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  History, addAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
   type AnnotId, type AppError, type Command, type PageId, type Quad, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
-import { AppFailure, defaultSaveOpts, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
+import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
 import type { PickedFile, Platform } from '@pagewright/platform';
 
 export type MarkupType = 'highlight' | 'underline' | 'strikeout';
@@ -54,12 +54,6 @@ export interface StoreDeps {
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 
-/** Cheap check for an embedded digital signature (a /ByteRange entry in a signature dictionary). */
-export function looksSigned(bytes: Uint8Array): boolean {
-  const text = new TextDecoder('latin1').decode(bytes);
-  return /\/ByteRange\s*\[/.test(text) && /\/Type\s*\/Sig\b|\/SubFilter\s*\/(adbe|ETSI)/.test(text);
-}
-
 export class AppStore {
   readonly history = new History(emptyDocument());
   private ui: UiState = { zoom: 1, activeTool: 'select', selection: new Set(), currentPage: 0, notices: [] };
@@ -105,10 +99,13 @@ export class AppStore {
   private async addFile(file: PickedFile): Promise<void> {
     this.patch({ busy: `Opening ${file.name}`, error: undefined });
     try {
-      const bytes = await file.read();
+      // Prefer a disk-backed Blob so the file is never held whole in memory, and prefer a private snapshot of
+      // it so saving over the original cannot break later lazy reads.
+      const blob = file.snapshot ? await file.snapshot() : file.blob;
+      const data = blob ? blobSource(blob) : memorySource(await file.read());
       const id = this.newId();
       const base: SourceDoc = {
-        id, name: file.name, bytes, pageCount: 0, isEncrypted: false, hasDigitalSignature: looksSigned(bytes),
+        id, name: file.name, data, pageCount: 0, isEncrypted: false, hasDigitalSignature: await detectSignature(data),
       };
       let password: string | undefined;
       let rd: RenderDoc | undefined;

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AppFailure, type PdfRenderer, type PdfWriter, type RenderDoc } from '@pagewright/engine';
 import type { PickedFile, Platform } from '@pagewright/platform';
-import { AppStore, looksSigned } from '../src/store';
+import { AppStore } from '../src/store';
 
 function file(name: string, content = 'x'): PickedFile {
   const bytes = new TextEncoder().encode(content);
@@ -92,6 +92,43 @@ describe('AppStore: opening', () => {
     await done;
     expect(store.getSnapshot().doc.pages).toHaveLength(0);
     expect(store.getSnapshot().ui.busy).toBeUndefined();
+  });
+});
+
+describe('AppStore: blob-backed files', () => {
+  it('keeps the disk-backed blob instead of reading the file into memory', async () => {
+    const { store, renderer } = setup();
+    const read = vi.fn(async () => new Uint8Array([1]));
+    const blob = new Blob([new Uint8Array(100)]);
+    await store.addFiles([{ name: 'big.pdf', size: 100, read, blob }]);
+    const src = Object.values(store.getSnapshot().doc.sources)[0]!;
+    expect(src.data).toEqual({ kind: 'blob', blob });
+    expect(read).not.toHaveBeenCalled();
+    expect(vi.mocked(renderer.open).mock.calls[0]![0].data.kind).toBe('blob');
+  });
+
+  it('prefers the private snapshot over the original blob', async () => {
+    const { store } = setup();
+    const original = new Blob([new Uint8Array(10)]);
+    const copy = new Blob([new Uint8Array(10)]);
+    const snapshot = vi.fn(async () => copy);
+    await store.addFiles([{ name: 'a.pdf', size: 10, read: async () => new Uint8Array(), blob: original, snapshot }]);
+    expect(snapshot).toHaveBeenCalledOnce();
+    const data = Object.values(store.getSnapshot().doc.sources)[0]!.data;
+    expect(data.kind === 'blob' && data.blob).toBe(copy);
+  });
+
+  it('falls back to reading bytes when the platform has no blob', async () => {
+    const { store } = setup();
+    await store.addFiles([file('a.pdf')]);
+    expect(Object.values(store.getSnapshot().doc.sources)[0]!.data.kind).toBe('memory');
+  });
+
+  it('detects a signature inside a blob-backed file', async () => {
+    const { store } = setup();
+    const blob = new Blob(['/Type /Sig /ByteRange [0 1 2 3]']);
+    await store.addFiles([{ name: 's.pdf', size: blob.size, read: async () => new Uint8Array(), blob }]);
+    expect(Object.values(store.getSnapshot().doc.sources)[0]!.hasDigitalSignature).toBe(true);
   });
 });
 
@@ -283,13 +320,5 @@ describe('AppStore: saving', () => {
     const sub = vi.mocked(writer.save).mock.calls[0]![0];
     expect(sub.pages).toHaveLength(1);
     expect(saved[0]!.name).toBe('extract.pdf');
-  });
-});
-
-describe('looksSigned', () => {
-  it('detects signature dictionaries but not plain PDFs', () => {
-    const enc = (s: string) => new TextEncoder().encode(s);
-    expect(looksSigned(enc('<< /Type /Sig /ByteRange [0 1 2 3] >>'))).toBe(true);
-    expect(looksSigned(enc('%PDF-1.7 << /Type /Page >>'))).toBe(false);
   });
 });

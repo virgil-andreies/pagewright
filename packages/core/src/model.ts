@@ -1,4 +1,5 @@
 import type { Annotation } from './annotations';
+import type { SourceData } from './source';
 
 export type SourceId = string;
 export type PageId = string;
@@ -8,7 +9,8 @@ export type Rotation = 0 | 90 | 180 | 270;
 export interface SourceDoc {
   id: SourceId;
   name: string;
-  bytes: Uint8Array; // never mutated
+  /** Never mutated. Blob-backed for opened files, so big documents stay on disk (see source.ts). */
+  data: SourceData;
   pageCount: number;
   isEncrypted: boolean;
   hasDigitalSignature: boolean;

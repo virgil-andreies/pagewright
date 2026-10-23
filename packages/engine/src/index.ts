@@ -4,6 +4,7 @@ export * from './annotation-writer';
 export * from './writer';
 export * from './renderer';
 export * from './render-queue';
+export * from './signature';
 export * from './save-protocol';
 export * from './save-handler';
 export * from './worker-writer';

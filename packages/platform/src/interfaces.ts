@@ -1,8 +1,20 @@
+import type { BlobLike } from '@pagewright/core';
+
 export interface PickedFile {
   name: string;
   size: number;
   /** Lazy: large files are only read when needed. */
   read(): Promise<Uint8Array>;
+  /**
+   * The file as a disk-backed Blob when the platform has one (browsers do). Preferred over `read()`: a big
+   * file then costs almost no memory until its pages are actually needed. Adapters without Blobs omit it.
+   */
+  blob?: BlobLike;
+  /**
+   * Copies the file into app-private storage and returns that stable copy. Lazy reads from `blob` break if
+   * the original changes on disk, which includes saving over the file the user opened. Prefer this to `blob`.
+   */
+  snapshot?(): Promise<BlobLike>;
   /** FileSystemFileHandle / path, for overwrite-in-place. Opaque to callers. */
   handle?: unknown;
 }

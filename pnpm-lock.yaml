@@ -73,7 +73,11 @@ importers:
         specifier: ^26.6.5
         version: 26.6.5
 
-  packages/platform: {}
+  packages/platform:
+    dependencies:
+      '@pagewright/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/ui:
     dependencies:

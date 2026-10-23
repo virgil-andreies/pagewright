@@ -1,5 +1,5 @@
 import { PDFDocument, degrees } from '@cantoo/pdf-lib';
-import { normalizeRotation, preflight, type AppError, type SourceId, type WorkingDocument } from '@pagewright/core';
+import { memorySource, normalizeRotation, preflight, readAll, type AppError, type SourceId, type WorkingDocument } from '@pagewright/core';
 import { DefaultAnnotationWriter, type AnnotationWriter } from './annotation-writer';
 import type { PdfWriter, Progress, SaveOpts } from './types';
 
@@ -48,7 +48,7 @@ export class PdfLibWriter implements PdfWriter {
         const s = doc.sources[ref.sourceId];
         if (!s) throw new AppFailure({ code: 'CorruptFile', detail: `missing source ${ref.sourceId}` });
         try {
-          src = await PDFDocument.load(s.bytes, { updateMetadata: false });
+          src = await PDFDocument.load(await readAll(s.data), { updateMetadata: false });
         } catch (e) {
           throw new AppFailure({ code: 'CorruptFile', detail: e instanceof Error ? e.message : String(e) });
         }

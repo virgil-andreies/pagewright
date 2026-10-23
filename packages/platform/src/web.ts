@@ -1,3 +1,4 @@
+import { snapshotToPrivateStorage } from './snapshot';
 import type {
   DeviceInfo, FileSystemAdapter, PickedFile, Platform, SaveTarget, SecureStore, ShareAdapter,
 } from './interfaces';
@@ -9,6 +10,8 @@ function fromFile(file: File, handle?: unknown): PickedFile {
     name: file.name,
     size: file.size,
     read: async () => new Uint8Array(await file.arrayBuffer()),
+    blob: file,
+    snapshot: () => snapshotToPrivateStorage(file, { onFallback: (e) => console.warn('Using the original file without a private copy:', e) }),
     ...(handle ? { handle } : {}),
   };
 }

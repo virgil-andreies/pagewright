@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   History,
+  memorySource,
   addAnnotation,
   addSource,
   deletePages,
@@ -21,7 +22,7 @@ let n = 0;
 const ids = () => `id${++n}`;
 
 function source(id: string, pageCount: number): SourceDoc {
-  return { id, name: `${id}.pdf`, bytes: new Uint8Array(0), pageCount, isEncrypted: false, hasDigitalSignature: false };
+  return { id, name: `${id}.pdf`, data: memorySource(new Uint8Array(0)), pageCount, isEncrypted: false, hasDigitalSignature: false };
 }
 
 function setup(counts: number[] = [3]) {

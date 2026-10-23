@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, degrees } from '@cantoo/pdf-lib';
 import {
-  History, addAnnotation, addSource, emptyDocument, rotatePages, rectToQuad,
+  History, memorySource, readAll, addAnnotation, addSource, emptyDocument, rotatePages, rectToQuad,
   type HighlightAnnot, type SourceDoc
 } from '@pagewright/core';
 import { AppFailure, PdfLibWriter, defaultSaveOpts, buildTextMarkupAppearance } from '../src';
@@ -17,7 +17,7 @@ async function makePdf(pages: number, opts: { rotate?: number; cropBox?: [number
 }
 
 const source = async (id: string, pageCount: number, o: Parameters<typeof makePdf>[1] = {}, over: Partial<SourceDoc> = {}): Promise<SourceDoc> => ({
-  id, name: `${id}.pdf`, bytes: await makePdf(pageCount, o), pageCount, isEncrypted: false, hasDigitalSignature: false, ...over,
+  id, name: `${id}.pdf`, data: memorySource(await makePdf(pageCount, o)), pageCount, isEncrypted: false, hasDigitalSignature: false, ...over,
 });
 
 const highlight = (pageId: string, id = 'annot-1'): HighlightAnnot => ({
@@ -110,11 +110,11 @@ describe('PdfLibWriter', () => {
 
   it('does not mutate the source bytes', async () => {
     const s = await source('a', 1);
-    const copy = s.bytes.slice();
+    const copy = (await readAll(s.data)).slice();
     const h = build([s]);
     h.execute(addAnnotation(highlight('p1')));
     await writer.save(h.current, defaultSaveOpts);
-    expect(s.bytes).toEqual(copy);
+    expect(await readAll(s.data)).toEqual(copy);
   });
 });
 

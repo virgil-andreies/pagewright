@@ -3,7 +3,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { PDFDocument, StandardFonts, degrees, rgb } from '@cantoo/pdf-lib';
 import {
-  History, addAnnotation, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
+  History, memorySource, addAnnotation, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
   type Annotation, type PageId, type SourceDoc,
 } from '@pagewright/core';
 import { PdfLibWriter, defaultSaveOpts } from '../src';
@@ -32,7 +32,7 @@ async function makeSource(id: string, titles: string[], rotate = 0, cropBox?: [n
   }
   const bytes = await pdf.save();
   const widthOf = (t: string) => font.widthOfTextAtSize(t, SIZE);
-  const src: SourceDoc = { id, name: `${id}.pdf`, bytes, pageCount: titles.length, isEncrypted: false, hasDigitalSignature: false };
+  const src: SourceDoc = { id, name: `${id}.pdf`, data: memorySource(bytes), pageCount: titles.length, isEncrypted: false, hasDigitalSignature: false };
   return { src, lines, widthOf };
 }
 

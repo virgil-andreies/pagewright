@@ -7,7 +7,9 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "dev": "pnpm --filter @pagewright/web dev",
-    "sample": "tsx packages/engine/scripts/sample.ts"
+    "sample": "tsx packages/engine/scripts/sample.ts",
+    "make-large": "tsx packages/engine/scripts/make-large.ts",
+    "bench-large": "tsx --expose-gc packages/engine/scripts/bench-large.ts"
   },
   "devDependencies": {
     "tsx": "^4.23.15",

@@ -1,4 +1,4 @@
-import { preflight, type SourceDoc, type WorkingDocument } from '@pagewright/core';
+import { memorySource, preflight, type SourceDoc, type WorkingDocument } from '@pagewright/core';
 import type { SaveMessage, SaveRequest } from './save-protocol';
 import type { PdfWriter, Progress, SaveOpts } from './types';
 import { AppFailure } from './writer';
@@ -29,8 +29,9 @@ export interface WorkerPdfWriterOptions {
 /**
  * Runs the save pipeline in a worker so large documents do not freeze the UI.
  *
- * Source bytes are copied once and the copy is transferred (not cloned): the worker owns it and frees it
- * when terminated, while the originals in the working document stay intact for later edits and re-saves.
+ * Blob-backed sources (opened files) are passed by reference, so nothing is copied on the main thread.
+ * In-memory sources are copied once and the copy is transferred (not cloned): the worker owns it and frees
+ * it when terminated, while the originals in the working document stay intact for later edits and re-saves.
  */
 export class WorkerPdfWriter implements PdfWriter {
   private nextId = 1;
@@ -48,9 +49,13 @@ export class WorkerPdfWriter implements PdfWriter {
     const transfer: Transferable[] = [];
     for (const [id, s] of Object.entries(doc.sources)) {
       if (!used.has(id)) continue; // unused sources are not sent at all
-      const bytes = s.bytes.slice();
-      sources[id] = { ...s, bytes };
-      transfer.push(bytes.buffer);
+      if (s.data.kind === 'blob') {
+        sources[id] = s; // a Blob/File is cloned by reference: no bytes are copied, the worker reads what it needs
+      } else {
+        const bytes = s.data.bytes.slice();
+        sources[id] = { ...s, data: memorySource(bytes) };
+        transfer.push(bytes.buffer);
+      }
     }
     const request: SaveRequest = {
       type: 'save', id: this.nextId++, doc: { ...doc, sources }, opts, memoryBudgetMB: this.o.memoryBudgetMB,

@@ -1,5 +1,5 @@
 import type { Quad, Rect, Rotation, SourceDoc } from '@pagewright/core';
-import { normalizeRotation } from '@pagewright/core';
+import { memorySource, normalizeRotation, readRange, sourceSize } from '@pagewright/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { ImportedAnnotMeta, PageInfo, PdfRenderer, RenderDoc, RenderOpts, TextRun } from './types';
 import { AppFailure } from './writer';
@@ -17,6 +17,10 @@ export interface PdfJsRendererOptions {
   standardFontDataUrl?: string;
 }
 
+const WHOLE_FILE_MAX = 4 * 1024 * 1024;
+const INITIAL_CHUNK = 64 * 1024;
+const RANGE_CHUNK = 1024 * 1024;
+
 // pdf.js PasswordResponses
 const NEED_PASSWORD = 1;
 const INCORRECT_PASSWORD = 2;
@@ -28,10 +32,31 @@ export class PdfJsRenderer implements PdfRenderer {
     return this.opts.pdfjs ?? (await import('pdfjs-dist'));
   }
 
+  /**
+   * How PDF.js reads the file. Small files are handed over whole. Big ones are loaded by byte range, so the
+   * main thread never holds a second copy and PDF.js fetches only what the visible pages need.
+   */
+  private async input(pdfjs: PdfjsModule, source: SourceDoc): Promise<Record<string, unknown>> {
+    const size = sourceSize(source.data);
+    // PDF.js takes ownership of what it is given, so it always gets a fresh copy.
+    if (size <= WHOLE_FILE_MAX) return { data: await readRange(source.data, 0, size) };
+
+    const transport = new pdfjs.PDFDataRangeTransport(size, await readRange(source.data, 0, INITIAL_CHUNK));
+    transport.requestDataRange = (begin, end) => {
+      readRange(source.data, begin, end).then(
+        (chunk) => transport.onDataRange(begin, chunk),
+        () => transport.abort(),
+      );
+    };
+    // No auto-fetch: otherwise PDF.js would quietly pull the rest of the file into memory in the background.
+    return { range: transport, length: size, disableAutoFetch: true, disableStream: true, rangeChunkSize: RANGE_CHUNK };
+  }
+
   async open(source: SourceDoc, password?: string): Promise<RenderDoc> {
     const pdfjs = await this.lib();
-    // pdf.js transfers the buffer to its worker; hand it a copy so `source.bytes` stays intact.
-    const task = pdfjs.getDocument({ data: source.bytes.slice(), password,
+    const task = pdfjs.getDocument({
+      ...(await this.input(pdfjs, source)),
+      password,
       ...(this.opts.standardFontDataUrl ? { standardFontDataUrl: this.opts.standardFontDataUrl } : {}),
     });
     try {
@@ -151,7 +176,7 @@ export function textQuad(transform: number[], width: number, height: number): Qu
 export function pdfjsVerify(renderer: PdfJsRenderer) {
   return async (bytes: Uint8Array, expectedPages: number): Promise<boolean> => {
     const doc = await renderer.open({
-      id: 'verify', name: 'verify.pdf', bytes, pageCount: expectedPages, isEncrypted: false, hasDigitalSignature: false,
+      id: 'verify', name: 'verify.pdf', data: memorySource(bytes), pageCount: expectedPages, isEncrypted: false, hasDigitalSignature: false,
     });
     try {
       if (doc.pageCount !== expectedPages) return false;
