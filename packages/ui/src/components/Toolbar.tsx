@@ -38,20 +38,31 @@ const FAMILIES: { id: FontFamily; label: string }[] = [
 ];
 
 /** Which stamp the Stamp tool places, and, with a stamp selected, which one it is. */
+/** The select's value for a chosen picture: not a preset name, which are plain words. */
+const IMAGE_OPTION = ':picture';
+
 function StampControls() {
   const { store } = useUi();
   const { doc, ui } = useSnapshot();
   const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id);
   const stamp = sel?.type === 'stamp' && sel.origin === 'app' && sel.payload.kind === 'preset' ? sel : undefined;
   if (!stamp && ui.activeTool !== 'stamp') return null;
-  const current = stamp?.payload.kind === 'preset' ? stamp.payload.name : ui.stampPreset;
+  // A selected stamp shows (and changes) its own type; otherwise this is what the tool places next.
+  const image = !stamp && ui.stampImage;
+  const current = stamp?.payload.kind === 'preset' ? stamp.payload.name : image ? IMAGE_OPTION : ui.stampPreset;
   return (
     <div className="group" aria-label="Stamp">
-      <select aria-label="Stamp type" value={current} onChange={(e) => store.setStampPreset(e.target.value)}>
+      <select aria-label="Stamp type" value={current} onChange={(e) => e.target.value !== IMAGE_OPTION && store.setStampPreset(e.target.value)}>
         {STAMP_PRESETS.map((p) => (
           <option key={p.name} value={p.name}>{p.label}</option>
         ))}
+        {image && <option value={IMAGE_OPTION}>Picture: {image.name}</option>}
       </select>
+      {!stamp && store.canAddImages && (
+        <button onClick={() => void store.chooseStampImage()} disabled={ui.stampImageLoading} title="Use a PNG or JPEG picture as a stamp">
+          {ui.stampImageLoading ? 'Preparing…' : 'Picture…'}
+        </button>
+      )}
     </div>
   );
 }

@@ -8,3 +8,4 @@ export { AnnotationOverlay } from './components/AnnotationOverlay';
 export { TextLayer } from './components/TextLayer';
 export { SignatureDialog, SignaturePreview } from './components/SignatureDialog';
 export * from './selection';
+export * from './image-loader';

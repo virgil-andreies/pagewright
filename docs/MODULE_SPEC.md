@@ -155,12 +155,10 @@ export interface FreeTextAnnot extends AnnotBase {    // typed text on page => /
 export interface StampAnnot extends AnnotBase {       // stamps and visual signatures => /Stamp
   type: 'stamp';
   rect: Rect;
-  kind: 'preset' | 'signature-drawn' | 'signature-typed' | 'image';
   payload:
     | { kind: 'preset'; name: string }
-    | { kind: 'signature-drawn'; strokes: Point[][] }
-    | { kind: 'signature-typed'; text: string; font: string }
-    | { kind: 'image'; mime: 'image/png' | 'image/jpeg'; bytes: Uint8Array };
+    | { kind: 'signature'; art: SignatureArt }           // typed or drawn, as vector artwork (see Signatures)
+    | { kind: 'image'; mime: 'image/png' | 'image/jpeg'; bytes: Uint8Array };   // already prepared (see Image stamps)
 }
 ```
 
@@ -282,7 +280,7 @@ Annotation mapping:
 | freetext | /FreeText | standard PDF font (Helvetica, Times or Courier, WinAnsi); wrapped text in AP; `/C` left out (it would be drawn as a background); `/Contents` is the text |
 | stamp (preset) | /Stamp | rounded frame and bold label drawn from vectors and Helvetica-Bold, scaled to the rectangle with its proportions kept; `/Name` is the preset, `/Subj` its label, `/Contents` is free for a comment |
 | stamp (signature) | /Stamp | the signature's vector artwork (letter outlines, or pen strokes), filled or stroked in the annotation colour and scaled into the rectangle with its proportions kept; `/Name` and `/Subj` are "Signature"; no font or image is embedded |
-| stamp (image) | /Stamp | image XObject (not built yet) |
+| stamp (image) | /Stamp | the picture as an image XObject (`/Im1`) stretched over the rectangle: PNG through pdf-lib (transparency as an `/SMask`), JPEG embedded as it is (`/DCTDecode`); one image object per distinct picture, shared by duplicated stamps; `/Name` and `/Subj` are "Image" |
 
 **Annotations that came with the source file.** They are drawn by PDF.js in the page image and are never re-drawn or re-written by us. To let the user select, read and delete them, `getSourceAnnotations` reports each one in detail (read in the background after opening) and `importedAnnotations` maps it to our types with `origin: 'imported'`: replies are folded into the parent's comment thread; links, form fields and popups are not selectable. Deleting one records its id, and its replies' ids, in `WorkingDocument.removedImported` for that page instance (so a duplicated page has its own set; the command is undoable). On screen the deleted annotations are left out of the page image with PDF.js's `operationsFilter`, which skips the operations between that annotation's `beginAnnotation(id)` and `endAnnotation`. On save, `copyPageWithout` takes them (plus their popups and replies) out of the *source page's* `/Annots` before the page is copied, so nothing of them, including comment text, reaches the output.
 
@@ -391,6 +389,8 @@ Large byte arrays are transferred, not copied. Sources are held once in the main
 - `CommentsPanel`, `SignatureDialog` (create, keep and delete signatures; see below), `MetadataDialog`, `MergeDialog`, `SaveDialog` (warnings, flatten option).
 
 **Signatures.** A typed signature is made once, when the person types a name and picks a handwriting style: `typedSignatureArt` lays the name out with fontkit (so ligatures and contextual forms that script fonts need are applied; a character comes from the first of the font's files, Latin, extended Latin, Cyrillic and so on, that has it) and keeps only the **outlines** as plain path data (`SignatureArt`). Saved signatures (the artwork and an ink colour) live in `SecureStore`, validated on load and capped at 30. A placed signature is a `StampAnnot` carrying a copy of the artwork, so the editor, the library and the saved PDF all draw the same shapes, no font is needed after creation, and deleting a saved signature does not touch placed ones. A drawn signature is made on a pad in the same dialog: `strokesToArt` thins the pen points, smooths them into cubic Beziers (Catmull-Rom), trims to the ink and keeps them as stroke-mode artwork drawn with a round pen, so it is saved, stored and placed exactly like a typed one. The UI says that a visual signature is not a digital signature (PAdES is a non-goal): in the dialog, and once per session when one is placed.
+
+**Image stamps.** The Stamp tool's "Picture…" asks for one PNG or JPEG. The file is identified by its first bytes, not its name; files over 30 MB are refused before they are read. The platform's `ImageLoader` then prepares it once (the browser one decodes it with `createImageBitmap`, turned the right way up from the EXIF orientation, refuses pictures more than 10 times longer than wide, scales the longer side down to 2000 px and draws it again): a picture with transparency is kept as PNG, anything else becomes a JPEG on white. Re-encoding means the writer only ever sees plain 8-bit PNGs and baseline RGB JPEGs, and a phone photo of tens of megabytes becomes a few hundred kilobytes. The placed stamp holds those bytes; it is one point per pixel, fitted into 200 x 200 pt, keeps the picture's proportions when resized, and the editor shows it through a blob URL. The writer embeds every distinct picture before writing annotations (`embedStampImages`; embedding is asynchronous, the annotation writer is not) and fails the save with a clear message rather than write an empty stamp if a picture cannot be read. Preflight counts the pictures toward the memory estimate.
 - State: a single store holding `History` + `WorkingDocument` + UI state. UI-only state (zoom, active tool, selection) is kept separate from the document and is not undoable.
 
 ## 11. Policies and errors (`packages/core/policies`)

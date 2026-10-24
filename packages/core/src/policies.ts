@@ -1,5 +1,6 @@
 import type { SourceId, WorkingDocument } from './model';
 import { sourceSize } from './source';
+import { imageStampBytes } from './image-stamp';
 
 export type AppError =
   | { code: 'PasswordRequired'; sourceId: SourceId }
@@ -54,7 +55,7 @@ export function preflight(doc: WorkingDocument, opts: PreflightOpts): PreflightR
 
   if (sources.some((s) => s.isEncrypted)) result.errors.push({ code: 'EncryptedNotSupported' });
 
-  const estimateMB = estimateSavePeakMB(sources.reduce((n, s) => n + sourceSize(s.data), 0));
+  const estimateMB = estimateSavePeakMB(sources.reduce((n, s) => n + sourceSize(s.data), 0) + imageStampBytes(doc));
   if (estimateMB > opts.memoryBudgetMB) result.errors.push({ code: 'OutOfMemoryRisk', estimateMB, budgetMB: opts.memoryBudgetMB });
 
   if (sources.some((s) => s.hasDigitalSignature)) {

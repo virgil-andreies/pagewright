@@ -2,7 +2,7 @@
 // Pass a scenario name to run just that one, e.g. `pnpm e2e text`. Screenshots go to out/e2e/.
 // These use the real mouse and keyboard, real focus and layout, and a real file chooser and download: the
 // things jsdom cannot reproduce, which is where the bugs that unit tests miss tend to live.
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream } from '@cantoo/pdf-lib';
 import { textWidth } from '../packages/core/src';
@@ -440,6 +440,123 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
       return n;
     }, rect);
     check('opened again, PDF.js draws the pen line in blue where it belongs', ink > 100, `${ink} blue pixels`);
+  },
+
+  async imageStamps(s) {
+    console.log('Image stamps');
+    await openPdf(s.page, SAMPLE);
+
+    // Make real picture files with the browser's own encoders.
+    const make = (kind: string) =>
+      s.page.evaluate(async (k) => {
+        const c = document.createElement('canvas');
+        const g = c.getContext('2d')!;
+        if (k === 'logo') {
+          // Transparent background, an opaque green disc.
+          [c.width, c.height] = [300, 150];
+          g.fillStyle = 'rgb(0,160,0)';
+          g.beginPath();
+          g.ellipse(150, 75, 140, 70, 0, 0, Math.PI * 2);
+          g.fill();
+        } else if (k === 'sideways') {
+          // Stored 300 x 100, red on the left: a phone would tag it "turn 90 degrees clockwise" to show it 100 x 300.
+          [c.width, c.height] = [300, 100];
+          g.fillStyle = 'rgb(220,0,0)';
+          g.fillRect(0, 0, 150, 100);
+          g.fillStyle = 'rgb(0,0,220)';
+          g.fillRect(150, 0, 150, 100);
+        } else {
+          [c.width, c.height] = [3000, 1500];
+          g.fillStyle = 'rgb(255,140,0)';
+          g.fillRect(0, 0, 3000, 1500);
+        }
+        const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), k === 'logo' ? 'image/png' : 'image/jpeg', 0.95));
+        return Array.from(new Uint8Array(await blob.arrayBuffer()));
+      }, kind);
+    const dir = resolve(SHOTS, 'inputs');
+    mkdirSync(dir, { recursive: true });
+    const logo = resolve(dir, 'logo.png');
+    writeFileSync(logo, Buffer.from(await make('logo')));
+    // EXIF orientation 6 (rotate 90 clockwise), inserted right after the JPEG's start marker.
+    const exif = Buffer.from([
+      0xff, 0xe1, 0x00, 0x22, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, // APP1, length 34, "Exif\0\0"
+      0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08, // big-endian TIFF header, first IFD at 8
+      0x00, 0x01, 0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x06, 0x00, 0x00, // one entry: Orientation = 6
+      0x00, 0x00, 0x00, 0x00, // no next IFD
+    ]);
+    const plain = Buffer.from(await make('sideways'));
+    const sideways = resolve(dir, 'sideways.jpg');
+    writeFileSync(sideways, Buffer.concat([plain.subarray(0, 2), exif, plain.subarray(2)]));
+    const big = resolve(dir, 'big.jpg');
+    writeFileSync(big, Buffer.from(await make('big')));
+    const notImage = resolve(dir, 'notes.png');
+    writeFileSync(notImage, 'these are notes, not a picture');
+
+    const choose = async (path: string) => {
+      await s.page.keyboard.press('k');
+      const button = await s.page.waitForSelector('xpath/.//button[normalize-space()="Picture…"]');
+      const [chooser] = await Promise.all([s.page.waitForFileChooser(), button!.click()]);
+      await chooser.accept([path]);
+      await s.page.waitForFunction(() => ![...document.querySelectorAll('button')].some((b) => b.textContent === 'Preparing…'), { timeout: 15000 });
+      await sleep(150);
+    };
+    const optionText = () => s.page.$eval('select[aria-label="Stamp type"]', (e) => (e as HTMLSelectElement).selectedOptions[0]?.textContent ?? '');
+    const pictures = () => count(s.page, 'svg.overlay image');
+
+    await choose(notImage);
+    const toast = await s.page.$eval('.toasts', (e) => e.textContent ?? '');
+    check('a file that is not a picture is refused with a reason', /Only PNG and JPEG/.test(toast), toast);
+    await s.page.evaluate(() => (document.querySelector('.toasts button[aria-label=Dismiss]') as HTMLButtonElement | null)?.click());
+
+    await choose(logo);
+    check('choosing a picture makes it the stamp to place', (await optionText()) === 'Picture: logo.png', await optionText());
+    await clickOnPage(s.page, 150, 480);
+    await sleep(300);
+    check('clicking the page places it, drawn from the picture', (await pictures()) === 1);
+    check('selected, with handles, and the Select tool back', (await count(s.page, 'svg.overlay [data-handle]')) === 4);
+
+    await choose(sideways);
+    await clickOnPage(s.page, 650, 640);
+    await sleep(300);
+    const tall = await s.page.$$eval('svg.overlay image', (e) => { const b = e.at(-1)!.getBoundingClientRect(); return { w: b.width, h: b.height }; });
+    check('a sideways phone photo is turned upright', tall.h > tall.w * 2.5, JSON.stringify(tall));
+
+    await choose(big);
+    await clickOnPage(s.page, 420, 380);
+    await sleep(300);
+    const wide = await s.page.$$eval('svg.overlay image', (e) => { const b = e.at(-1)!.getBoundingClientRect(); return { w: b.width, h: b.height }; });
+    check('a big photo is placed at the stamp size, keeping its proportions', Math.abs(wide.w / wide.h - 2) < 0.05 && Math.abs(wide.w - 200 * (96 / 72)) < 2, JSON.stringify(wide));
+    await s.page.screenshot({ path: resolve(SHOTS, 'image-stamps.png') });
+
+    await clickButton(s.page, 'Save');
+    const file = await waitForDownload();
+    const doc = await PDFDocument.load(readFileSync(file));
+    const annots = doc.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    const images = annots.asArray().map((_, i) => annots.lookup(i, PDFDict)).filter((d) => (d.lookup(PDFName.of('Name')) as PDFName | undefined)?.decodeText() === 'Image');
+    check('the saved file has three image stamps', images.length === 3, `${images.length}`);
+    const pic = (d: PDFDict) => {
+      const ap = d.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N')) as PDFRawStream;
+      const im = ap.dict.lookup(PDFName.of('Resources'), PDFDict).lookup(PDFName.of('XObject'), PDFDict).lookup(PDFName.of('Im1')) as PDFRawStream;
+      const v = (k: string) => im.dict.lookup(PDFName.of(k));
+      return { w: Number(String(v('Width'))), h: Number(String(v('Height'))), filter: String(v('Filter')), mask: !!im.dict.get(PDFName.of('SMask')), size: im.contents.length };
+    };
+    const [p1, p2, p3] = images.map(pic);
+    check('the transparent PNG keeps its transparency', p1!.w === 300 && p1!.h === 150 && p1!.mask, JSON.stringify(p1));
+    check('the sideways photo is stored upright', p2!.w === 100 && p2!.h === 300 && p2!.filter === '/DCTDecode', JSON.stringify(p2));
+    check('the big photo is stored scaled down to 2000 pixels, as JPEG', p3!.w === 2000 && p3!.h === 1000 && p3!.filter === '/DCTDecode' && p3!.size < 1_000_000, JSON.stringify(p3));
+    const rect1 = images[0]!.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Number(n.toString()));
+
+    await s.page.goto(s.url);
+    await openPdf(s.page, file);
+    const px = await s.page.evaluate((r) => {
+      const c = document.querySelector('.page-view canvas') as HTMLCanvasElement;
+      const k = c.width / 612;
+      const g = c.getContext('2d')!;
+      // (no helper functions in here: the bundler would wrap them in a name helper the page does not have)
+      return [[(r[0]! + r[2]!) / 2, (r[1]! + r[3]!) / 2], [r[0]! + 2, r[3]! - 2]].map(([x, y]) => Array.from(g.getImageData(Math.round(x! * k), Math.round((792 - y!) * k), 1, 1).data));
+    }, rect1).then(([centre, corner]) => ({ centre: centre!, corner: corner! }));
+    check('opened again, PDF.js draws the green picture where it belongs', px.centre[1]! > 120 && px.centre[0]! < 60 && px.centre[2]! < 60, JSON.stringify(px.centre));
+    check('and the page shows through its transparent corners', px.corner.slice(0, 3).every((v) => v > 200), JSON.stringify(px.corner));
   },
 
   async text(s) {

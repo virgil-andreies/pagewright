@@ -63,6 +63,7 @@ export type StampPayload =
   | { kind: 'preset'; name: string }
   /** A visual signature, typed or drawn, as vector artwork (see signature-art.ts). Not a digital signature. */
   | { kind: 'signature'; art: SignatureArt }
+  /** A picture (a logo, a scanned signature): PNG or JPEG bytes, already scaled down and checked (see image-stamp.ts). */
   | { kind: 'image'; mime: 'image/png' | 'image/jpeg'; bytes: Uint8Array };
 
 export interface StampAnnot extends AnnotBase {

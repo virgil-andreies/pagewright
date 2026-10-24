@@ -6,7 +6,7 @@ import {
   History, STAMP_PRESETS, addAnnotation, addSource, boldTextWidth, emptyDocument, memorySource, newStampRect, stampLayout, stampPreset,
   stampScale, toWinAnsi, type Annotation, type StampAnnot,
 } from '@pagewright/core';
-import { PdfJsRenderer, PdfLibWriter, UnsupportedAnnotation, buildStampAppearance, defaultSaveOpts } from '../src';
+import { DefaultAnnotationWriter, PdfJsRenderer, PdfLibWriter, UnsupportedAnnotation, buildStampAppearance, defaultSaveOpts } from '../src';
 
 const base = { id: 'st1', pageId: 'p1', author: 'Ada', createdAt: '2026-03-04T05:06:07Z', modifiedAt: '2026-03-04T05:06:07Z', opacity: 1, origin: 'app' as const };
 const stamp = (name = 'Approved', over: Partial<StampAnnot> = {}): StampAnnot => {
@@ -74,10 +74,10 @@ describe('buildStampAppearance', () => {
     expect(buildStampAppearance(stamp('Void', { opacity: 0.5 })).opacity).toBe(0.5);
   });
 
-  it('refuses what it cannot draw yet instead of drawing something wrong', () => {
+  it('refuses what it cannot draw instead of drawing something wrong', () => {
     expect(() => buildStampAppearance({ ...stamp(), payload: { kind: 'preset', name: 'Nope' } })).toThrow(/unknown stamp/);
     const image = { ...stamp(), payload: { kind: 'image', mime: 'image/png', bytes: new Uint8Array(1) } } as StampAnnot;
-    expect(() => buildStampAppearance(image)).toThrow(/no appearance yet/);
+    expect(() => buildStampAppearance(image)).toThrow(/not a preset/);
   });
 });
 
@@ -138,9 +138,13 @@ describe('writing stamps', () => {
     expect(get(rotated, 'F')).toEqual(PDFNumber.of(4)); // not NoRotate
   });
 
-  it('says plainly that images cannot be written yet, rather than writing something wrong', async () => {
+  it('refuses to write an image stamp whose picture was not embedded, rather than an empty box', () => {
     const payload = { kind: 'image', mime: 'image/png', bytes: new Uint8Array(1) } as const;
-    await expect(save([{ ...stamp(), payload } as Annotation])).rejects.toBeInstanceOf(UnsupportedAnnotation);
+    const pdf = PDFDocument.create();
+    return pdf.then((p) => {
+      const page = p.addPage();
+      expect(() => new DefaultAnnotationWriter().write({ pdf: p, page }, { ...stamp(), payload } as Annotation)).toThrow(UnsupportedAnnotation);
+    });
   });
 
   it('is read back by PDF.js as a Stamp in the right place', async () => {

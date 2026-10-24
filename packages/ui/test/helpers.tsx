@@ -3,7 +3,7 @@ import { afterEach, expect, vi } from 'vitest';
 import type { PdfRenderer, PdfWriter, RenderDoc, RenderOpts } from '@pagewright/engine';
 import type { SourceAnnotation } from '@pagewright/core';
 import type { PickedFile, Platform } from '@pagewright/platform';
-import { AppShell, AppStore, type SignatureMaker } from '../src';
+import { AppShell, AppStore, type ImageLoader, type SignatureMaker } from '../src';
 
 afterEach(cleanup);
 
@@ -25,7 +25,7 @@ Element.prototype.scrollIntoView = () => {};
 
 export const info = { width: 200, height: 300, rotation: 0 as const, mediaBox: { x: 0, y: 0, w: 200, h: 300 }, cropBox: { x: 0, y: 0, w: 200, h: 300 }, userUnit: 1 };
 
-export function setup(pageCount = 3, original: (pageIndex: number) => SourceAnnotation[] = () => [], signatureMaker?: SignatureMaker) {
+export function setup(pageCount = 3, original: (pageIndex: number) => SourceAnnotation[] = () => [], signatureMaker?: SignatureMaker, imageLoader?: ImageLoader) {
   const secrets = new Map<string, unknown>();
   const renderPage = vi.fn(async (_index: number, _opts: RenderOpts, _signal?: AbortSignal) => {});
   const renderer: PdfRenderer = {
@@ -46,13 +46,15 @@ export function setup(pageCount = 3, original: (pageIndex: number) => SourceAnno
     secure: { get: async (k: string) => secrets.get(k), set: async (k: string, v: unknown) => void secrets.set(k, JSON.parse(JSON.stringify(v))) },
   } as unknown as Platform;
   let n = 0;
-  const store = new AppStore({ renderer, writer, platform, signatureMaker, newId: () => `id${++n}` });
+  const store = new AppStore({ renderer, writer, platform, signatureMaker, imageLoader, newId: () => `id${++n}` });
   const open = async () => {
     nextFile = [{ name: 'doc.pdf', size: 1, read: async () => new Uint8Array([1]) }];
     fireEvent.click(screen.getByRole('button', { name: 'Open' }));
     await waitFor(() => expect(store.getSnapshot().doc.pages).toHaveLength(pageCount));
   };
   render(<AppShell store={store} />);
-  return { store, open, renderPage, saveFile, writer, secrets };
+  /** What the next file picker returns. */
+  const pickNext = (files: PickedFile[]) => void (nextFile = files);
+  return { store, open, renderPage, saveFile, writer, secrets, pickNext, platform };
 }
 

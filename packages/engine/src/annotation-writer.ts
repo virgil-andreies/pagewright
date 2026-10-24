@@ -3,11 +3,16 @@ import {
   PDFArray, PDFBool, PDFDict, PDFHexString, PDFName, PDFString,
   type PDFDocument, type PDFPage, type PDFRef,
 } from '@cantoo/pdf-lib';
-import { buildFreeTextAppearance, buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildSignatureAppearance, buildStampAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
+import { buildFreeTextAppearance, buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildImageStampAppearance, buildSignatureAppearance, buildStampAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
 
 export interface WriteContext {
   pdf: PDFDocument;
   page: PDFPage;
+  /**
+   * Image stamps' pictures, already embedded in `pdf` (embedding is asynchronous, writing is not). Keyed by the
+   * payload's bytes, so a stamp that was duplicated shares one image object in the file. See `embedStampImages`.
+   */
+  images?: ReadonlyMap<Uint8Array, PDFRef>;
 }
 
 export class UnsupportedAnnotation extends Error {
@@ -57,7 +62,27 @@ function standardFont(pdf: PDFDocument, family: FontKey): PDFRef {
   return ref;
 }
 
-function registerAppearance(ctx: WriteContext, ap: AppearanceStream): PDFRef {
+/**
+ * Embeds the picture of every image stamp that will be written, once per distinct image. Call before writing the
+ * annotations, and pass the result as `WriteContext.images`. A picture pdf-lib cannot read fails the save with a
+ * message that says which stamp is the problem, rather than writing a stamp that shows nothing.
+ */
+export async function embedStampImages(pdf: PDFDocument, annots: Iterable<Annotation>): Promise<Map<Uint8Array, PDFRef>> {
+  const refs = new Map<Uint8Array, PDFRef>();
+  for (const a of annots) {
+    if (a.type !== 'stamp' || a.origin === 'imported' || a.payload.kind !== 'image' || refs.has(a.payload.bytes)) continue;
+    const { bytes, mime } = a.payload;
+    try {
+      const image = mime === 'image/png' ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+      refs.set(bytes, image.ref);
+    } catch (e) {
+      throw new Error(`An image stamp could not be saved because its picture is damaged (${e instanceof Error ? e.message : String(e)}). Delete it and add the image again.`);
+    }
+  }
+  return refs;
+}
+
+function registerAppearance(ctx: WriteContext, ap: AppearanceStream, image?: PDFRef): PDFRef {
   const { context } = ctx.pdf;
   const gs = context.obj({
     Type: 'ExtGState',
@@ -73,6 +98,7 @@ function registerAppearance(ctx: WriteContext, ap: AppearanceStream): PDFRef {
     Resources: context.obj({
       ExtGState: context.obj({ GS: gs }),
       ...(ap.font ? { Font: context.obj({ F1: standardFont(ctx.pdf, ap.font) }) } : {}),
+      ...(image ? { XObject: context.obj({ Im1: image }) } : {}),
     }),
   });
   return context.register(stream);
@@ -183,6 +209,7 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
     let name: string;
     let subject: string;
     let ap: AppearanceStream;
+    let image: PDFRef | undefined;
     if (annot.payload.kind === 'preset') {
       const preset = stampPreset(annot.payload.name);
       if (!preset) throw new UnsupportedAnnotation(`stamp "${annot.payload.name}"`);
@@ -190,13 +217,16 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
     } else if (annot.payload.kind === 'signature') {
       [name, subject, ap] = ['Signature', 'Signature', buildSignatureAppearance(annot)];
     } else {
-      throw new UnsupportedAnnotation(`stamp (${annot.payload.kind})`);
+      image = ctx.images?.get(annot.payload.bytes);
+      // Without the embedded picture the stamp would be an empty box: refuse rather than lose the image silently.
+      if (!image) throw new UnsupportedAnnotation('stamp (image not embedded)');
+      [name, subject, ap] = ['Image', 'Image', buildImageStampAppearance(annot)];
     }
     const dict = this.commonEntries(ctx, annot, 'Stamp', ap.bbox);
     // /Name is the stamp's icon name and /Subj is what viewers list it as. /Contents stays free for a comment.
     dict.set(PDFName.of('Name'), PDFName.of(name));
     dict.set(PDFName.of('Subj'), PDFHexString.fromText(subject));
-    dict.set(PDFName.of('AP'), ctx.pdf.context.obj({ N: registerAppearance(ctx, ap) }));
+    dict.set(PDFName.of('AP'), ctx.pdf.context.obj({ N: registerAppearance(ctx, ap, image) }));
     return this.attach(ctx, dict);
   }
 

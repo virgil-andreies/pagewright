@@ -13,3 +13,4 @@ export * from './imported';
 export * from './stamp';
 export * from './signature-art';
 export * from './drawn-signature';
+export * from './image-stamp';

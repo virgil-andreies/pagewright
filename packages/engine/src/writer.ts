@@ -1,6 +1,6 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, degrees } from '@cantoo/pdf-lib';
 import { memorySource, normalizeRotation, preflight, readAll, type AppError, type SourceId, type WorkingDocument } from '@pagewright/core';
-import { DefaultAnnotationWriter, type AnnotationWriter } from './annotation-writer';
+import { DefaultAnnotationWriter, embedStampImages, type AnnotationWriter } from './annotation-writer';
 import type { PdfWriter, Progress, SaveOpts } from './types';
 
 /** Thrown for any condition expressed as an AppError (see core/policies). */
@@ -66,11 +66,12 @@ export class PdfLibWriter implements PdfWriter {
     }
 
     // 5. Annotations. Imported ones already live in the copied page dictionary.
+    const images = await embedStampImages(out, doc.pages.flatMap((p) => doc.annotations[p.id] ?? []));
     for (const [i, ref] of doc.pages.entries()) {
       const page = out.getPage(i);
       for (const annot of doc.annotations[ref.id] ?? []) {
         if (annot.origin === 'imported') continue;
-        this.annots.write({ pdf: out, page }, annot);
+        this.annots.write({ pdf: out, page, images }, annot);
       }
       onProgress?.({ phase: 'annotate', done: i + 1, total });
     }

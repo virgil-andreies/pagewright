@@ -12,6 +12,8 @@ export interface AppearanceStream {
   opacity: number;
   /** A standard font the content refers to as /F1; the writer adds it to the stream's resources. */
   font?: FontFamily | 'sansBold';
+  /** Whether the content draws an image XObject as /Im1; the writer adds the embedded image to the resources. */
+  image?: boolean;
 }
 
 const n = (v: number) => {
@@ -214,7 +216,7 @@ function roundedRectPath(x: number, y: number, w: number, h: number, r: number):
  * is centred in the annotation's rectangle at the largest size that fits. The editor draws from the same layout.
  */
 export function buildStampAppearance(a: StampAnnot): AppearanceStream {
-  if (a.payload.kind !== 'preset') throw new Error(`stamp payload "${a.payload.kind}" has no appearance yet`);
+  if (a.payload.kind !== 'preset') throw new Error(`stamp payload "${a.payload.kind}" is not a preset`);
   const preset = stampPreset(a.payload.name);
   if (!preset) throw new Error(`unknown stamp "${a.payload.name}"`);
   const L = stampLayout(preset.label);
@@ -264,4 +266,11 @@ export function buildSignatureAppearance(a: StampAnnot): AppearanceStream {
   ops.push(art.mode === 'fill' ? 'f' : 'S'); // nonzero winding: how TrueType outlines are meant to be filled
   const { x, y, w, h } = a.rect;
   return { bbox: [x, y, x + w, y + h], content: ops.join('\n'), multiply: false, opacity: a.opacity * a.color.a };
+}
+
+/** An image stamp: the picture stretched over the rectangle (whose proportions are the image's own). */
+export function buildImageStampAppearance(a: StampAnnot): AppearanceStream {
+  if (a.payload.kind !== 'image') throw new Error(`stamp payload "${a.payload.kind}" is not an image`);
+  const { x, y, w, h } = a.rect;
+  return { bbox: [x, y, x + w, y + h], content: `q ${n(w)} 0 0 ${n(h)} ${n(x)} ${n(y)} cm /Im1 Do Q`, multiply: false, opacity: a.opacity, image: true };
 }

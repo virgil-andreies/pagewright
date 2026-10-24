@@ -1,5 +1,6 @@
+import type { ImageLoader, StampImage } from './image-loader';
 import {
-  isSignatureArt, strokesToArt, newSignatureRect, DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  isSignatureArt, strokesToArt, MAX_IMAGE_FILE_BYTES, newImageStampRect, newSignatureRect, DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
   type Annotation, type AnnotComment, type AnnotId, type SignatureArt, type SourceAnnotation, type StampAnnot, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
@@ -48,6 +49,10 @@ export interface UiState {
   drawStyle: DrawStyle;
   /** Which preset stamp the Stamp tool places next (a name from STAMP_PRESETS). */
   stampPreset: string;
+  /** A picture the Stamp tool places instead of the preset, once one has been chosen. */
+  stampImage?: StampImage & { name: string };
+  /** A picture is being read and prepared. */
+  stampImageLoading?: boolean;
   /** Signatures saved on this device (see SecureStore), newest last. */
   signatures: readonly SavedSignature[];
   signatureDialog: boolean;
@@ -131,6 +136,8 @@ function validSignatures(stored: unknown): SavedSignature[] {
 }
 
 export interface StoreDeps {
+  /** Prepares pictures for image stamps (see `browserImageLoader`). Without it, image stamps cannot be added. */
+  imageLoader?: ImageLoader;
   /** Needed to create typed signatures. Without it, only already-saved ones can be used. */
   signatureMaker?: SignatureMaker;
   renderer: PdfRenderer;
@@ -352,6 +359,15 @@ export class AppStore {
    * so it can be moved or resized straight away.
    */
   addStamp(pageId: PageId, center: Point): AnnotId | undefined {
+    const image = this.ui.stampImage;
+    if (image) {
+      const id = this.addDrawn({
+        type: 'stamp', pageId, color: { r: 0, g: 0, b: 0, a: 1 }, rect: newImageStampRect(image.width, image.height, center),
+        payload: { kind: 'image', mime: image.mime, bytes: image.bytes },
+      });
+      this.patch({ activeTool: 'select', selectedAnnot: { pageId, id } });
+      return id;
+    }
     const preset = findStampPreset(this.ui.stampPreset) ?? DEFAULT_STAMP;
     const id = this.addDrawn({
       type: 'stamp', pageId, color: preset.color, rect: newStampRect(preset, center), payload: { kind: 'preset', name: preset.name },
@@ -364,11 +380,38 @@ export class AppStore {
   setStampPreset(name: string): void {
     const preset = findStampPreset(name);
     if (!preset) return;
-    this.patch({ stampPreset: preset.name });
+    this.patch({ stampPreset: preset.name, stampImage: undefined });
     const sel = this.ui.selectedAnnot;
     const a = sel && this.history.current.annotations[sel.pageId]?.find((x) => x.id === sel.id);
     if (a?.type === 'stamp' && a.origin === 'app' && a.payload.kind === 'preset' && a.payload.name !== preset.name) {
       this.updateAnnotation(changeStampPreset(a as StampAnnot, preset));
+    }
+  }
+
+  get canAddImages(): boolean {
+    return !!this.deps.imageLoader;
+  }
+
+  /**
+   * Asks for a PNG or JPEG picture and makes it what the Stamp tool places next. The picture is checked and
+   * prepared first (turned upright, scaled down), so what is placed is what will be saved.
+   */
+  async chooseStampImage(): Promise<void> {
+    const loader = this.deps.imageLoader;
+    if (!loader) return this.fail(new Error('Image stamps are not available here.'));
+    const [file] = await this.platform.fs.pickFiles({ multiple: false, accept: ['.png', '.jpg', '.jpeg', 'image/png', 'image/jpeg'] });
+    if (!file) return;
+    if (file.size > MAX_IMAGE_FILE_BYTES) {
+      return this.fail(new Error(`This picture is too large (${Math.round(file.size / 1048576)} MB). Pictures up to ${MAX_IMAGE_FILE_BYTES / 1048576} MB can be used.`));
+    }
+    this.patch({ stampImageLoading: true });
+    try {
+      const image = await loader(await file.read());
+      this.patch({ stampImage: { ...image, name: file.name }, activeTool: 'stamp' });
+    } catch (e) {
+      this.fail(e);
+    } finally {
+      this.patch({ stampImageLoading: false });
     }
   }
 

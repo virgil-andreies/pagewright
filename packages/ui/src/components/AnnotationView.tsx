@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   BASELINE_RATIO, NOTE_ICON_LINE, artScale, artSvgPath, NOTE_INK, NOTE_SIZE, TEXT_PADDING, annotationBounds, arrowHead, effectiveRotation, freeTextHandles,
   freeTextLines, lineAdvance, noteIcon, pdfToViewport, quadBounds, shapeHandles, stampHandles, stampLayout, stampPreset, stampScale, textWidth,
@@ -145,7 +146,7 @@ function FreeTextBody({ text, geometry, scale }: { text: FreeTextAnnot; geometry
  */
 function StampBody({ stamp, geometry, scale }: { stamp: StampAnnot; geometry: PageGeometry; scale: number }) {
   if (stamp.payload.kind === 'signature') return <SignatureBody stamp={stamp} art={stamp.payload.art} geometry={geometry} scale={scale} />;
-  if (stamp.payload.kind !== 'preset') return null;
+  if (stamp.payload.kind === 'image') return <ImageBody stamp={stamp} bytes={stamp.payload.bytes} mime={stamp.payload.mime} geometry={geometry} scale={scale} />;
   const preset = stampPreset(stamp.payload.name);
   if (!preset) return null;
   const L = stampLayout(preset.label);
@@ -190,6 +191,33 @@ function SignatureBody({ stamp, art, geometry, scale }: { stamp: StampAnnot; art
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </g>
+  );
+}
+
+/** A blob URL for some bytes, revoked when they are no longer shown. Stamps that share a picture each get their own. */
+function useObjectUrl(bytes: Uint8Array, mime: string): string | undefined {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    if (typeof URL.createObjectURL !== 'function') return; // test environments without blobs
+    const u = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [bytes, mime]);
+  return url;
+}
+
+/** An image stamp: the picture stretched over the rectangle (which has its proportions), turning with the page. */
+function ImageBody({ stamp, bytes, mime, geometry, scale }: { stamp: StampAnnot; bytes: Uint8Array; mime: string; geometry: PageGeometry; scale: number }) {
+  const url = useObjectUrl(bytes, mime);
+  const anchor = pdfToViewport(geometry, scale, { x: stamp.rect.x, y: stamp.rect.y + stamp.rect.h });
+  return (
+    <g transform={`translate(${anchor.x} ${anchor.y}) rotate(${effectiveRotation(geometry)}) scale(${scale})`} opacity={stamp.opacity}>
+      {url ? (
+        <image href={url} width={stamp.rect.w} height={stamp.rect.h} preserveAspectRatio="none" />
+      ) : (
+        <rect width={stamp.rect.w} height={stamp.rect.h} fill="none" stroke="#999" strokeDasharray="4 3" />
+      )}
     </g>
   );
 }
