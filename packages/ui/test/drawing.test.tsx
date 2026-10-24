@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { addAnnotation, type Annotation, type InkAnnot, type ShapeAnnot } from '@pagewright/core';
 import { setup } from './helpers';
@@ -296,5 +296,44 @@ describe('line style', () => {
       fireEvent.keyDown(window, { key });
       expect(t.store.getSnapshot().ui.activeTool).toBe(name);
     }
+  });
+});
+
+describe('fast gestures', () => {
+  // A mouse move and the release can arrive before React has re-rendered. The release must use the latest position,
+  // not the last one that was drawn, or a quick flick loses its final stretch.
+  const quick = (host: Element, events: [string, [number, number]][]) =>
+    act(() => {
+      for (const [type, [x, y]] of events) {
+        const e = new MouseEvent(type, { bubbles: true, clientX: px(x, y).clientX, clientY: px(x, y).clientY, button: 0 });
+        Object.assign(e, { pointerId: 1 });
+        host.dispatchEvent(e);
+      }
+    });
+
+  it('a drag released at once still ends where the pointer last was', async () => {
+    const t = await ready();
+    t.tool('Rectangle');
+    quick(t.svg.parentElement!, [['pointerdown', [20, 200]], ['pointermove', [60, 180]], ['pointermove', [120, 150]], ['pointerup', [120, 150]]]);
+    const [a] = t.annots() as ShapeAnnot[];
+    near(a!.rect.w, 100);
+    near(a!.rect.h, 50);
+  });
+
+  it('a move released at once still lands where the pointer last was', async () => {
+    const t = await ready();
+    t.tool('Rectangle');
+    t.drag([[20, 200], [120, 150]]);
+    t.tool('Select');
+    quick(t.svg.parentElement!, [['pointerdown', [70, 200]], ['pointermove', [80, 190]], ['pointermove', [100, 170]], ['pointerup', [100, 170]]]);
+    near((t.annots()[0] as ShapeAnnot).rect.x, 50);
+  });
+
+  it('a pen stroke released at once keeps its last point', async () => {
+    const t = await ready();
+    t.tool('Pen');
+    quick(t.svg.parentElement!, [['pointerdown', [20, 100]], ['pointermove', [60, 100]], ['pointermove', [100, 100]], ['pointermove', [140, 100]], ['pointerup', [140, 100]]]);
+    const a = t.annots()[0] as InkAnnot;
+    near(a.strokes[0]!.at(-1)!.x, 140);
   });
 });

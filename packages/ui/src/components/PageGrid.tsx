@@ -43,7 +43,13 @@ export function PageGrid() {
   const { store } = useUi();
   const { doc, ui } = useSnapshot();
   const listRef = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
+  const [drag, setDragState] = useState<DragState | null>(null);
+  // The latest drag, readable by the next event before React has re-rendered (see AnnotationOverlay).
+  const dragRef = useRef<DragState | null>(null);
+  const setDrag = (d: DragState | null) => {
+    dragRef.current = d;
+    setDragState(d);
+  };
 
   const movingIds = (pageId: string) => (ui.selection.has(pageId) ? [...ui.selection] : [pageId]);
 
@@ -67,6 +73,7 @@ export function PageGrid() {
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
     if (!drag) return;
     const active = drag.active || Math.abs(e.clientY - drag.startY) > 6;
     if (!active) return;
@@ -74,6 +81,7 @@ export function PageGrid() {
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
     if (!drag) return;
     setDrag(null);
     if (drag.active) {

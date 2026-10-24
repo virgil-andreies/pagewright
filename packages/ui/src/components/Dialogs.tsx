@@ -1,20 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type FormEvent } from 'react';
 import { describeError } from '@pagewright/core';
 import { useSnapshot, useUi } from '../react';
-
-function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const d = ref.current;
-    if (d && !d.open) (d.showModal ? d.showModal() : d.setAttribute('open', ''));
-  }, []);
-  return (
-    <dialog ref={ref} className="modal" aria-label={title} onCancel={(e) => (e.preventDefault(), onClose())}>
-      <h2>{title}</h2>
-      {children}
-    </dialog>
-  );
-}
+import { Modal } from './Modal';
+import { SignatureDialog } from './SignatureDialog';
 
 function PasswordDialog({ fileName, wrong }: { fileName: string; wrong: boolean }) {
   const { store } = useUi();
@@ -44,6 +32,7 @@ export function Dialogs() {
   return (
     <>
       {ui.passwordPrompt && <PasswordDialog key={ui.passwordPrompt.fileName + ui.passwordPrompt.wrong} {...ui.passwordPrompt} />}
+      {ui.signatureDialog && <SignatureDialog />}
       {ui.saveWarning && (
         <Modal title="Digital signatures will be invalidated" onClose={() => store.cancelSaveWarning()}>
           <p>{describeError(ui.saveWarning).message} Visual signatures added here are not cryptographic signatures.</p>

@@ -1,12 +1,13 @@
 // Builds out/sample.pdf: merged, rotated pages with highlight / underline / strikeout.
 // Run from the repo root: pnpm sample
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { PDFDocument, StandardFonts, degrees, rgb } from '@cantoo/pdf-lib';
 import {
-  History, fitFreeText, newStampRect, stampPreset, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
+  History, fitFreeText, newSignatureRect, newStampRect, stampPreset, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
   type Annotation, type PageId, type Point, type Rect, type ShapeAnnot, type SourceDoc,
 } from '@pagewright/core';
-import { PdfLibWriter, defaultSaveOpts } from '../src';
+import { PdfLibWriter, defaultSaveOpts, typedSignatureArt } from '../src';
 
 const SIZE = 18;
 
@@ -141,6 +142,16 @@ async function main() {
   h.execute(addAnnotation(stampAt('stamp-p1c', 'p1', 'NotApproved', 200, 250)));
   h.execute(addAnnotation(stampAt('stamp-p3', 'p3', 'Void', 300, 450)));
   h.execute(addAnnotation(stampAt('stamp-p4', 'p4', 'Draft', 250, 400)));
+
+  // Typed signatures, drawn from real handwriting fonts into vector outlines (the same code the app uses).
+  const gv = (set: string) => new Uint8Array(readFileSync(fileURLToPath(new URL(`../node_modules/@fontsource/great-vibes/files/great-vibes-${set}-400-normal.woff`, import.meta.url))));
+  const signed = (id: string, pageId: string, text: string, cx: number, cy: number, color = blue2): Annotation => {
+    const { art } = typedSignatureArt([gv('latin'), gv('latin-ext')], text)!;
+    return { ...common, type: 'stamp', id, pageId, color, payload: { kind: 'signature', art }, rect: newSignatureRect(art, { x: cx, y: cy }, 200) };
+  };
+  h.execute(addAnnotation(signed('sig-p1', 'p1', 'Ada Lovelace', 300, 150)));
+  h.execute(addAnnotation(signed('sig-p3', 'p3', 'Ada Lovelace', 300, 380, red2)));
+  h.execute(addAnnotation(signed('sig-p4', 'p4', 'Łukasz Żółć', 250, 300, green2)));
 
   // Extra rotation on top of the source rotation: p2 -> 90, p3 -> 90 + 90.
   h.execute(rotatePages(['p2', 'p3'], 90));

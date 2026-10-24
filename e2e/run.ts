@@ -4,7 +4,7 @@
 // things jsdom cannot reproduce, which is where the bugs that unit tests miss tend to live.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName } from '@cantoo/pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream } from '@cantoo/pdf-lib';
 import { textWidth } from '../packages/core/src';
 import {
   SHOTS, check, chooseTool, clearDownloads, clickButton, clickOnPage, count, doubleClickOnPage, dragOnPage, failureCount, openPdf, sleep, start, waitForDownload,
@@ -288,6 +288,94 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     }, rect);
     check('opened again, PDF.js draws the saved stamp in green where it belongs', inked > 300, `${inked} green pixels`);
     await s.page.screenshot({ path: resolve(SHOTS, 'stamp-saved.png') });
+  },
+
+  async signatures(s) {
+    console.log('Typed signatures');
+    await openPdf(s.page, SAMPLE);
+    await s.page.keyboard.press('g');
+    await s.page.waitForSelector('dialog[aria-label="Signatures"]');
+    const dialogText = () => s.page.$eval('dialog[aria-label="Signatures"]', (d) => d.textContent ?? '');
+    check('the Sign tool opens the dialog and says it is not a digital signature', /not a digital signature/.test(await dialogText()));
+
+    await s.page.type('dialog input', 'Ada Lovelace');
+    await s.page.waitForFunction(() => document.querySelectorAll('dialog [role=radiogroup][aria-label=Style] svg').length === 4, { timeout: 15000 });
+    check('all four handwriting styles are drawn from the real font files', true);
+    const pathLengths = await s.page.$$eval('dialog [role=radiogroup][aria-label=Style] svg path', (els) => els.map((e) => (e.getAttribute('d') ?? '').length));
+    check('and each is real artwork, different from the others', pathLengths.every((n) => n > 500) && new Set(pathLengths).size === 4, JSON.stringify(pathLengths));
+
+    // A name in another alphabet: drawn from the font's Cyrillic file where it has one.
+    const pick = (group: string, label: string) =>
+      s.page.evaluate((g, l) => (document.querySelector(`dialog [role=radiogroup][aria-label="${g}"] [aria-label="${l}"]`) as HTMLButtonElement).click(), group, label);
+    await s.page.$eval('dialog input', (e: Element) => { (e as HTMLInputElement).select(); });
+    await s.page.keyboard.type('Ada Привет');
+    await sleep(900);
+    await pick('Style', 'Sacramento');
+    await sleep(200);
+    check('a style with no Cyrillic says which characters it leaves out', /cannot draw: П р и в е т/.test(await dialogText()), (await dialogText()).slice(-200));
+    await pick('Style', 'Great Vibes');
+    await sleep(200);
+    check('a style that has Cyrillic draws them without a warning', !/cannot draw/.test(await dialogText()));
+
+    // Make the real one.
+    await s.page.$eval('dialog input', (e: Element) => { (e as HTMLInputElement).select(); });
+    await s.page.keyboard.type('Ada Lovelace');
+    await sleep(900);
+    await pick('Style', 'Dancing Script');
+    await pick('Ink', 'Blue');
+    await s.page.screenshot({ path: resolve(SHOTS, 'signature-dialog.png') });
+    await clickButton(s.page, 'Save and use');
+    await s.page.waitForFunction(() => !document.querySelector('dialog[aria-label="Signatures"]'));
+    check('Save and use closes the dialog and leaves the Sign tool ready', (await s.page.$eval('[role=radio][aria-checked=true]', (e) => e.textContent)) === 'Sign');
+
+    // Place it.
+    await clickOnPage(s.page, 360, 480);
+    await sleep(300);
+    const sig = () => s.page.$eval(`${ANNOT} path`, (p) => { const b = p.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, fill: p.getAttribute('fill') }; });
+    const placed = await sig();
+    check('clicking the page places the signature, drawn in blue', placed.w > 100 && /^rgb\(/.test(placed.fill ?? '') && /rgb\(\d+ \d+ 1\d\d\)/.test(placed.fill ?? ''), JSON.stringify(placed));
+    check('centred on the click, selected, with four handles and the Select tool back', Math.abs(placed.x + placed.w / 2 - 0) > 0 && (await count(s.page, 'svg.overlay [data-handle]')) === 4);
+    await s.page.screenshot({ path: resolve(SHOTS, 'signature-placed.png') });
+
+    // It is kept on this device: reload and it is still there.
+    await s.page.reload();
+    await openPdf(s.page, SAMPLE);
+    await s.page.keyboard.press('g');
+    await s.page.waitForSelector('dialog[aria-label="Signatures"]');
+    const saved = await s.page.$$eval('dialog .sig-list .sig-name', (e) => e.map((x) => x.textContent));
+    check('after reloading the page the signature is still saved on this device', saved.includes('Ada Lovelace'), JSON.stringify(saved));
+    await s.page.evaluate(() => (document.querySelector('dialog [aria-label="Use signature Ada Lovelace"]') as HTMLButtonElement).click());
+    await s.page.waitForFunction(() => !document.querySelector('dialog[aria-label="Signatures"]'));
+    await clickOnPage(s.page, 360, 480);
+    await sleep(300);
+    const again = await sig();
+
+    // Save and open the saved file: PDF.js draws it from the appearance stream we wrote.
+    await clickButton(s.page, 'Save');
+    const file = await waitForDownload();
+    const doc = await PDFDocument.load(readFileSync(file));
+    const annots = doc.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    // The sample already holds signatures of its own; the one placed just now is the last in the file.
+    const stamp = annots.asArray().map((_, i) => annots.lookup(i, PDFDict)).filter((d) => (d.lookup(PDFName.of('Name')) as PDFName | undefined)?.decodeText() === 'Signature').at(-1);
+    check('the saved file has a Signature stamp', !!stamp);
+    const rect = stamp!.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Number(n.toString()));
+    check('as wide as it was on screen', Math.abs(rect[2]! - rect[0]! - 160) < 1, `${rect[2]! - rect[0]!}`);
+    const ap = stamp!.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N')) as PDFRawStream;
+    check('drawn as outlines, so no font is needed to show it', !ap.dict.lookup(PDFName.of('Resources'), PDFDict).lookup(PDFName.of('Font')) && /\bc\n/.test(Buffer.from(ap.contents).toString('latin1')));
+
+    await s.page.goto(s.url);
+    await openPdf(s.page, file);
+    const ink = await s.page.evaluate((r) => {
+      const c = document.querySelector('.page-view canvas') as HTMLCanvasElement;
+      const k = c.width / 612;
+      const d = c.getContext('2d')!.getImageData(Math.round(r[0]! * k), Math.round((792 - r[3]!) * k), Math.round((r[2]! - r[0]!) * k), Math.round((r[3]! - r[1]!) * k)).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 2]! > d[i]! + 60 && d[i + 2]! > d[i + 1]! + 60) n++; // clearly blue
+      return n;
+    }, rect);
+    check('opened again, PDF.js draws the signature in blue where it belongs', ink > 400, `${ink} blue pixels`);
+    await s.page.screenshot({ path: resolve(SHOTS, 'signature-saved.png') });
+    void again;
   },
 
   async text(s) {

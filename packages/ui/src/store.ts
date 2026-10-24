@@ -1,13 +1,13 @@
 import {
-  DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
-  type Annotation, type AnnotComment, type AnnotId, type SourceAnnotation, type StampAnnot, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
+  isSignatureArt, newSignatureRect, DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  type Annotation, type AnnotComment, type AnnotId, type SignatureArt, type SourceAnnotation, type StampAnnot, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
 import type { PickedFile, Platform } from '@pagewright/platform';
 
 export type MarkupType = 'highlight' | 'underline' | 'strikeout';
 export type ShapeTool = 'rect' | 'ellipse' | 'line' | 'arrow';
-export type ToolId = 'select' | MarkupType | 'ink' | ShapeTool | 'note' | 'text' | 'stamp';
+export type ToolId = 'select' | MarkupType | 'ink' | ShapeTool | 'note' | 'text' | 'stamp' | 'signature';
 
 /** Stroke and fill for the drawing tools. Changing it also restyles the selected ink or shape. */
 export interface DrawStyle {
@@ -48,6 +48,11 @@ export interface UiState {
   drawStyle: DrawStyle;
   /** Which preset stamp the Stamp tool places next (a name from STAMP_PRESETS). */
   stampPreset: string;
+  /** Signatures saved on this device (see SecureStore), newest last. */
+  signatures: readonly SavedSignature[];
+  signatureDialog: boolean;
+  /** The saved signature the Signature tool places next. */
+  activeSignature?: string;
   commentsOpen: boolean;
   textEdit?: TextEdit;
   /** A note being placed: it becomes an annotation only once it has text (so nothing empty is left behind). */
@@ -82,7 +87,52 @@ export interface Snapshot {
   redoLabel?: string;
 }
 
+/** A signature kept on this device for reuse. The artwork is plain vector data, so nothing else is needed to draw it. */
+export interface SavedSignature {
+  id: string;
+  /** What was typed, for the list. */
+  name: string;
+  art: SignatureArt;
+  color: RGBA;
+  createdAt: string;
+}
+
+/** Turns typed text into signature artwork (the engine's `createSignatureMaker`). */
+export interface SignatureMaker {
+  fonts: readonly { id: string; label: string }[];
+  make(text: string, fontId: string): Promise<{ art: SignatureArt; missing: string[] }>;
+}
+
+/** Ink colours offered for a new signature. */
+export const SIGNATURE_INKS: readonly { name: string; color: RGBA }[] = [
+  { name: 'Black', color: { r: 0.08, g: 0.08, b: 0.1, a: 1 } },
+  { name: 'Blue', color: { r: 0.05, g: 0.15, b: 0.6, a: 1 } },
+  { name: 'Dark red', color: { r: 0.55, g: 0.08, b: 0.08, a: 1 } },
+];
+
+/** How many signatures may be kept. Stops storage growing without bound. */
+export const MAX_SAVED_SIGNATURES = 30;
+const SIGNATURES_KEY = 'signatures';
+
+const VISUAL_SIGNATURE_NOTICE =
+  'A visual signature only shows your signature on the page. It is not a digital signature and does not prove who signed.';
+
+/** What comes back from storage may be old, damaged or edited by hand: keep only entries we can safely use. */
+function validSignatures(stored: unknown): SavedSignature[] {
+  if (!Array.isArray(stored)) return [];
+  const num = (n: unknown) => typeof n === 'number' && n >= 0 && n <= 1;
+  return stored
+    .filter((s): s is SavedSignature => {
+      const x = s as Partial<SavedSignature> | null;
+      return !!x && typeof x.id === 'string' && typeof x.name === 'string' && typeof x.createdAt === 'string' && isSignatureArt(x.art)
+        && !!x.color && num(x.color.r) && num(x.color.g) && num(x.color.b) && num(x.color.a);
+    })
+    .slice(0, MAX_SAVED_SIGNATURES);
+}
+
 export interface StoreDeps {
+  /** Needed to create typed signatures. Without it, only already-saved ones can be used. */
+  signatureMaker?: SignatureMaker;
   renderer: PdfRenderer;
   writer: PdfWriter;
   platform: Platform;
@@ -95,7 +145,7 @@ const MAX_ZOOM = 4;
 
 export class AppStore {
   readonly history = new History(emptyDocument());
-  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, stampPreset: DEFAULT_STAMP.name, commentsOpen: false, selection: new Set(), currentPage: 0, notices: [] };
+  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, stampPreset: DEFAULT_STAMP.name, signatures: [], signatureDialog: false, commentsOpen: false, selection: new Set(), currentPage: 0, notices: [] };
   private snap!: Snapshot;
   private listeners = new Set<() => void>();
   private renderDocs = new Map<SourceId, RenderDoc>();
@@ -112,6 +162,10 @@ export class AppStore {
         this.author = name;
         this.emit();
       }
+    });
+    void deps.platform.secure?.get<unknown>(SIGNATURES_KEY).then((stored) => {
+      const signatures = validSignatures(stored);
+      if (signatures.length > 0) this.patch({ signatures });
     });
     this.history.subscribe(() => {
       this.pruneSelection();
@@ -316,6 +370,72 @@ export class AppStore {
     if (a?.type === 'stamp' && a.origin === 'app' && a.payload.kind === 'preset' && a.payload.name !== preset.name) {
       this.updateAnnotation(changeStampPreset(a as StampAnnot, preset));
     }
+  }
+
+  // ---- Signatures --------------------------------------------------------------------------------
+
+  openSignatures(open = true): void {
+    this.patch({ signatureDialog: open });
+  }
+
+  get signatureMaker(): SignatureMaker | undefined {
+    return this.deps.signatureMaker;
+  }
+
+  /** The artwork for some typed text, without saving anything: for previews. Rejects with a readable message. */
+  previewSignature(text: string, fontId: string): Promise<{ art: SignatureArt; missing: string[] }> {
+    if (!this.deps.signatureMaker) return Promise.reject(new Error('Typed signatures are not available here.'));
+    return this.deps.signatureMaker.make(text, fontId);
+  }
+
+  /** Makes a signature from typed text in the chosen style and colour, and keeps it on this device. */
+  async createSignature(text: string, fontId: string, color: RGBA): Promise<SavedSignature> {
+    if (this.ui.signatures.length >= MAX_SAVED_SIGNATURES) {
+      throw new Error(`You can keep up to ${MAX_SAVED_SIGNATURES} signatures. Delete one to make room.`);
+    }
+    const { art } = await this.previewSignature(text, fontId);
+    const saved: SavedSignature = { id: this.newId(), name: text.trim().replace(/\s+/g, ' '), art, color, createdAt: new Date().toISOString() };
+    await this.saveSignatures([...this.ui.signatures, saved]);
+    return saved;
+  }
+
+  async deleteSignature(id: string): Promise<void> {
+    if (this.ui.activeSignature === id) this.patch({ activeSignature: undefined });
+    await this.saveSignatures(this.ui.signatures.filter((s) => s.id !== id));
+  }
+
+  /** The state changes at once; writing it to storage may fail, and then the person is told. */
+  private async saveSignatures(signatures: readonly SavedSignature[]): Promise<void> {
+    this.patch({ signatures });
+    try {
+      await this.deps.platform.secure?.set(SIGNATURES_KEY, signatures);
+    } catch {
+      this.notice('Your signatures could not be saved on this device, so they will be gone when you close the app.');
+    }
+  }
+
+  /** Chooses the signature to place, switches to the Signature tool and closes the dialog. */
+  useSignature(id: string): void {
+    if (!this.ui.signatures.some((s) => s.id === id)) return;
+    this.patch({ activeSignature: id, activeTool: 'signature', signatureDialog: false });
+  }
+
+  /**
+   * Places the chosen signature centred on `center`, then selects it with the Select tool so it can be moved or
+   * resized. With no signature chosen it opens the dialog instead.
+   */
+  addSignature(pageId: PageId, center: Point): AnnotId | undefined {
+    const sig = this.ui.signatures.find((s) => s.id === this.ui.activeSignature);
+    if (!sig) {
+      this.patch({ signatureDialog: true });
+      return undefined;
+    }
+    const id = this.addDrawn({
+      type: 'stamp', pageId, color: sig.color, rect: newSignatureRect(sig.art, center), payload: { kind: 'signature', art: sig.art },
+    });
+    this.patch({ activeTool: 'select', selectedAnnot: { pageId, id } });
+    this.notice(VISUAL_SIGNATURE_NOTICE);
+    return id;
   }
 
   // ---- Free text -----------------------------------------------------------------------
@@ -558,7 +678,9 @@ export class AppStore {
   }
 
   setTool(tool: ToolId): void {
-    this.patch({ activeTool: tool });
+    // The Signature tool needs a signature to place: if none is chosen yet, offer the dialog to make or pick one.
+    const needsChoice = tool === 'signature' && !this.ui.signatures.some((s) => s.id === this.ui.activeSignature);
+    this.patch({ activeTool: tool, ...(needsChoice ? { signatureDialog: true } : {}) });
   }
 
   dismissError(): void {

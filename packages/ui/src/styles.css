@@ -68,7 +68,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 /* Layers of a page, bottom to top: canvas, text layer, annotation SVG. The host covers the page and receives its pointer input. */
 .overlay-host { position: absolute; inset: 0; touch-action: pan-y pinch-zoom; }
-.overlay-host:is(.tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow, .tool-note, .tool-text, .tool-stamp) { cursor: crosshair; touch-action: none; }
+.overlay-host:is(.tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow, .tool-note, .tool-text, .tool-stamp, .tool-signature) { cursor: crosshair; touch-action: none; }
 .overlay-host:is(.tool-highlight, .tool-underline, .tool-strikeout) { cursor: text; }
 .overlay { position: absolute; inset: 0; pointer-events: none; }
 .overlay .annot { pointer-events: none; }
@@ -118,6 +118,26 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .text-editor { position: absolute; transform-origin: 0 0; box-sizing: border-box; resize: none; overflow: hidden; border: 1px dashed var(--accent); background: rgb(255 255 255 / 0.9); outline: none; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; z-index: 2; }
 .text-editor-hint { position: absolute; transform: translateY(-100%); background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; z-index: 3; white-space: nowrap; }
 .toolbar select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
+
+/* Signatures dialog */
+.modal:has(.sig-list, .sig-styles) { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
+.modal h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.sig-note { margin: 0 0 4px; font-size: 13px; }
+.sig-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sig-list li { display: grid; grid-template-columns: 120px 1fr auto auto; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.sig-list li.active { border-color: var(--accent); }
+.sig-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sig-preview { width: 100%; height: 44px; display: block; }
+.sig-placeholder { display: block; height: 44px; }
+.sig-field { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.sig-styles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0; }
+.sig-styles button { display: flex; flex-direction: column; gap: 2px; align-items: stretch; padding: 6px 10px; text-align: left; }
+.sig-styles button span:last-child { font-size: 12px; color: var(--muted); }
+/* The generic active-button style fills the button with the accent colour, which would hide a blue signature. */
+.sig-styles button.active { background: var(--surface); color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.sig-inks { display: flex; gap: 8px; margin-bottom: 8px; }
+.sig-inks .swatch { width: 24px; height: 24px; padding: 0; border-radius: 50%; }
+.sig-inks .swatch[aria-checked='true'] { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Comments panel */
 .comments { width: 300px; flex: none; overflow-y: auto; background: var(--surface); border-left: 1px solid var(--border); padding: 0 12px 16px; box-sizing: border-box; }

@@ -1,4 +1,5 @@
 import type { AnnotId, PageId } from './model';
+import type { SignatureArt } from './signature-art';
 
 export interface Point { x: number; y: number }
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -60,8 +61,8 @@ export interface FreeTextAnnot extends AnnotBase {
 
 export type StampPayload =
   | { kind: 'preset'; name: string }
-  | { kind: 'signature-drawn'; strokes: Point[][] }
-  | { kind: 'signature-typed'; text: string; font: string }
+  /** A visual signature, typed or drawn, as vector artwork (see signature-art.ts). Not a digital signature. */
+  | { kind: 'signature'; art: SignatureArt }
   | { kind: 'image'; mime: 'image/png' | 'image/jpeg'; bytes: Uint8Array };
 
 export interface StampAnnot extends AnnotBase {

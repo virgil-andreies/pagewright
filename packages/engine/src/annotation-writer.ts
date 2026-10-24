@@ -3,7 +3,7 @@ import {
   PDFArray, PDFBool, PDFDict, PDFHexString, PDFName, PDFString,
   type PDFDocument, type PDFPage, type PDFRef,
 } from '@cantoo/pdf-lib';
-import { buildFreeTextAppearance, buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildStampAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
+import { buildFreeTextAppearance, buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildSignatureAppearance, buildStampAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
 
 export interface WriteContext {
   pdf: PDFDocument;
@@ -180,14 +180,22 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
   }
 
   private writeStamp(ctx: WriteContext, annot: StampAnnot): PDFRef {
-    if (annot.payload.kind !== 'preset') throw new UnsupportedAnnotation(`stamp (${annot.payload.kind})`);
-    const preset = stampPreset(annot.payload.name);
-    if (!preset) throw new UnsupportedAnnotation(`stamp "${annot.payload.name}"`);
-    const ap = buildStampAppearance(annot);
+    let name: string;
+    let subject: string;
+    let ap: AppearanceStream;
+    if (annot.payload.kind === 'preset') {
+      const preset = stampPreset(annot.payload.name);
+      if (!preset) throw new UnsupportedAnnotation(`stamp "${annot.payload.name}"`);
+      [name, subject, ap] = [preset.name, preset.label, buildStampAppearance(annot)];
+    } else if (annot.payload.kind === 'signature') {
+      [name, subject, ap] = ['Signature', 'Signature', buildSignatureAppearance(annot)];
+    } else {
+      throw new UnsupportedAnnotation(`stamp (${annot.payload.kind})`);
+    }
     const dict = this.commonEntries(ctx, annot, 'Stamp', ap.bbox);
     // /Name is the stamp's icon name and /Subj is what viewers list it as. /Contents stays free for a comment.
-    dict.set(PDFName.of('Name'), PDFName.of(preset.name));
-    dict.set(PDFName.of('Subj'), PDFHexString.fromText(preset.label));
+    dict.set(PDFName.of('Name'), PDFName.of(name));
+    dict.set(PDFName.of('Subj'), PDFHexString.fromText(subject));
     dict.set(PDFName.of('AP'), ctx.pdf.context.obj({ N: registerAppearance(ctx, ap) }));
     return this.attach(ctx, dict);
   }

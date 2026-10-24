@@ -2,10 +2,11 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { PdfJsRenderer, WorkerPdfWriter, pdfjsVerify, type WorkerLike } from '@pagewright/engine';
+import { PdfJsRenderer, WorkerPdfWriter, createSignatureMaker, pdfjsVerify, type WorkerLike } from '@pagewright/engine';
 import SaveWorker from '@pagewright/engine/src/save.worker.ts?worker';
 import { createWebPlatform } from '@pagewright/platform';
 import { AppShell, AppStore } from '@pagewright/ui';
+import { signatureFonts } from './signature-fonts';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -21,7 +22,8 @@ const writer = new WorkerPdfWriter({
   memoryBudgetMB: platform.device.memoryBudgetMB,
   verify: pdfjsVerify(renderer),
 });
-const store = new AppStore({ renderer, writer, platform });
+// Typed signatures are drawn once, from handwriting fonts, into vector artwork; see signature-fonts.ts.
+const store = new AppStore({ renderer, writer, platform, signatureMaker: createSignatureMaker(signatureFonts) });
 
 // Handy for poking at state from the console while developing.
 if (import.meta.env.DEV) (window as unknown as { pagewright: unknown }).pagewright = store;

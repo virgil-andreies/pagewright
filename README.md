@@ -16,6 +16,7 @@ A PDF app for organising pages and marking up documents. It runs in the browser 
 - Highlight, underline and strike out exactly the text you select
 - Pen, rectangle, ellipse, line and arrow; text boxes (Helvetica, Times or Courier)
 - Preset stamps (Approved, Draft, Confidential and more), movable and resizable
+- Typed visual signatures in four handwriting styles, kept on your device, drawn as vector shapes so they look the same in every viewer (they are pictures of a name, not digital signatures)
 - Notes and comments, with replies and a comments panel
 - Annotations that were already in a PDF can be selected, read and deleted (not edited)
 
@@ -77,11 +78,11 @@ The design, the data model and the decisions behind them are in [docs/MODULE_SPE
 
 ## Roadmap
 
-- Visual signatures (typed and drawn, kept on your device) and image stamps
+- Drawn signatures and image stamps
 - Unicode text in text boxes
 - Electron shell (desktop) and Capacitor shell (mobile)
 - Checking the saved annotations in more viewers
 
 ## Acknowledgements
 
-Built on [PDF.js](https://mozilla.github.io/pdf.js/) for rendering and [pdf-lib](https://pdf-lib.js.org/) (the maintained [@cantoo fork](https://github.com/cantoo-scribe/pdf-lib)) for writing.
+Built on [PDF.js](https://mozilla.github.io/pdf.js/) for rendering and [pdf-lib](https://pdf-lib.js.org/) (the maintained [@cantoo fork](https://github.com/cantoo-scribe/pdf-lib)) for writing. Typed signatures use [fontkit](https://github.com/Hopding/fontkit) and the handwriting fonts Great Vibes, Dancing Script, Caveat and Sacramento (SIL Open Font License) from [Fontsource](https://fontsource.org).

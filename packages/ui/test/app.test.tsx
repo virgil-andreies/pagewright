@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { setup } from './helpers';
 
@@ -67,5 +67,23 @@ describe('AppShell', () => {
     store.execute({ label: 'noop', apply: (d) => d, invert: () => { throw new Error(); } });
     await store.save(); // nothing to save: no error, no crash
     expect(screen.queryByRole('status')?.textContent ?? '').toBe('');
+  });
+
+  it('reorders even when the release comes before React has redrawn after the last move', async () => {
+    const { open, store } = setup();
+    await open();
+    const before = store.getSnapshot().doc.pages.map((p) => p.id);
+    const grid = screen.getByRole('listbox', { name: 'Pages' });
+    const firstThumb = pages()[0]!;
+    // jsdom has no layout: report each thumbnail as a 100px-tall box, one under the other.
+    pages().forEach((el, i) => (el.getBoundingClientRect = () => ({ top: i * 100, bottom: i * 100 + 100, height: 100, left: 0, right: 100, width: 100, x: 0, y: i * 100 }) as DOMRect));
+    const ev = (type: string, y: number) => Object.assign(new MouseEvent(type, { bubbles: true, clientY: y, button: 0 }), { pointerId: 1 });
+    act(() => {
+      firstThumb.dispatchEvent(ev('pointerdown', 50));
+      grid.dispatchEvent(ev('pointermove', 80));
+      grid.dispatchEvent(ev('pointermove', 290)); // below the last thumbnail's middle
+      grid.dispatchEvent(ev('pointerup', 290));
+    });
+    expect(store.getSnapshot().doc.pages.map((p) => p.id)).toEqual([before[1], before[2], before[0]]);
   });
 });

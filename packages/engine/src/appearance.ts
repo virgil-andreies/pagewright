@@ -1,5 +1,5 @@
 import type { FontFamily, FreeTextAnnot, InkAnnot, NoteAnnot, Point, Quad, RGBA, ShapeAnnot, StampAnnot, TextMarkupAnnot } from '@pagewright/core';
-import { BASELINE_RATIO, NOTE_ICON_LINE, stampLayout, stampPreset, stampScale, TEXT_PADDING, freeTextLines, lineAdvance, toWinAnsi, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, quadBounds } from '@pagewright/core';
+import { BASELINE_RATIO, NOTE_ICON_LINE, artScale, stampLayout, stampPreset, stampScale, TEXT_PADDING, freeTextLines, lineAdvance, toWinAnsi, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, quadBounds } from '@pagewright/core';
 
 /** A Form XObject description, independent of pdf-lib so it can be unit tested as plain data. */
 export interface AppearanceStream {
@@ -239,4 +239,29 @@ export function buildStampAppearance(a: StampAnnot): AppearanceStream {
   ];
   const { x, y, w, h } = a.rect;
   return { bbox: [x, y, x + w, y + h], content: ops.join('\n'), multiply: false, opacity: a.opacity * a.color.a, font: 'sansBold' };
+}
+
+/**
+ * A visual signature: its artwork (letter outlines or pen strokes) scaled to fit the rectangle with its proportions
+ * kept, centred, drawn in the annotation's colour. The editor draws the same path data.
+ */
+export function buildSignatureAppearance(a: StampAnnot): AppearanceStream {
+  if (a.payload.kind !== 'signature') throw new Error(`stamp payload "${a.payload.kind}" is not a signature`);
+  const art = a.payload.art;
+  const s = artScale(art, a.rect);
+  const left = a.rect.x + (a.rect.w - art.w * s) / 2;
+  const top = a.rect.y + a.rect.h - (a.rect.h - art.h * s) / 2;
+  // Artwork units run down from the top-left; PDF's run up from the bottom-left.
+  const X = (u: number) => n(left + u * s);
+  const Y = (v: number) => n(top - v * s);
+  const ops: string[] = art.mode === 'fill' ? [`${rgb(a.color)} rg`] : [`${rgb(a.color)} RG`, `${n((art.strokeWidth ?? 1) * s)} w`, '1 J 1 j'];
+  for (const c of art.paths) {
+    if (c[0] === 'M') ops.push(`${X(c[1])} ${Y(c[2])} m`);
+    else if (c[0] === 'L') ops.push(`${X(c[1])} ${Y(c[2])} l`);
+    else if (c[0] === 'C') ops.push(`${X(c[1])} ${Y(c[2])} ${X(c[3])} ${Y(c[4])} ${X(c[5])} ${Y(c[6])} c`);
+    else ops.push('h');
+  }
+  ops.push(art.mode === 'fill' ? 'f' : 'S'); // nonzero winding: how TrueType outlines are meant to be filled
+  const { x, y, w, h } = a.rect;
+  return { bbox: [x, y, x + w, y + h], content: ops.join('\n'), multiply: false, opacity: a.opacity * a.color.a };
 }

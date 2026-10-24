@@ -1,7 +1,7 @@
 import {
-  BASELINE_RATIO, NOTE_ICON_LINE, NOTE_INK, NOTE_SIZE, TEXT_PADDING, annotationBounds, arrowHead, effectiveRotation, freeTextHandles,
+  BASELINE_RATIO, NOTE_ICON_LINE, artScale, artSvgPath, NOTE_INK, NOTE_SIZE, TEXT_PADDING, annotationBounds, arrowHead, effectiveRotation, freeTextHandles,
   freeTextLines, lineAdvance, noteIcon, pdfToViewport, quadBounds, shapeHandles, stampHandles, stampLayout, stampPreset, stampScale, textWidth,
-  type Annotation, type FontFamily, type FreeTextAnnot, type StampAnnot, type NoteAnnot, type PageGeometry, type Point, type Quad, type RGBA, type ShapeAnnot,
+  type Annotation, type FontFamily, type FreeTextAnnot, type SignatureArt, type StampAnnot, type NoteAnnot, type PageGeometry, type Point, type Quad, type RGBA, type ShapeAnnot,
 } from '@pagewright/core';
 
 export const rgb = (c: { r: number; g: number; b: number }) =>
@@ -144,6 +144,7 @@ function FreeTextBody({ text, geometry, scale }: { text: FreeTextAnnot; geometry
  * in the stamp's rectangle. It turns with the page, like any annotation without the NoRotate flag.
  */
 function StampBody({ stamp, geometry, scale }: { stamp: StampAnnot; geometry: PageGeometry; scale: number }) {
+  if (stamp.payload.kind === 'signature') return <SignatureBody stamp={stamp} art={stamp.payload.art} geometry={geometry} scale={scale} />;
   if (stamp.payload.kind !== 'preset') return null;
   const preset = stampPreset(stamp.payload.name);
   if (!preset) return null;
@@ -168,6 +169,27 @@ function StampBody({ stamp, geometry, scale }: { stamp: StampAnnot; geometry: Pa
       >
         {preset.label}
       </text>
+    </g>
+  );
+}
+
+/** A visual signature: its vector artwork, scaled into the rectangle with its proportions kept, turning with the page. */
+function SignatureBody({ stamp, art, geometry, scale }: { stamp: StampAnnot; art: SignatureArt; geometry: PageGeometry; scale: number }) {
+  const s = artScale(art, stamp.rect);
+  const anchor = pdfToViewport(geometry, scale, { x: stamp.rect.x, y: stamp.rect.y + stamp.rect.h });
+  const colour = rgb(stamp.color);
+  return (
+    <g
+      transform={`translate(${anchor.x} ${anchor.y}) rotate(${effectiveRotation(geometry)}) scale(${scale}) translate(${(stamp.rect.w - art.w * s) / 2} ${(stamp.rect.h - art.h * s) / 2}) scale(${s})`}
+    >
+      <path
+        d={artSvgPath(art)}
+        fill={art.mode === 'fill' ? colour : 'none'}
+        stroke={art.mode === 'stroke' ? colour : 'none'}
+        strokeWidth={art.strokeWidth ?? 1}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </g>
   );
 }

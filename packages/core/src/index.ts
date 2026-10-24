@@ -11,3 +11,4 @@ export * from './text-layout';
 export * from './selection-rects';
 export * from './imported';
 export * from './stamp';
+export * from './signature-art';

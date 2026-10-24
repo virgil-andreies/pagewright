@@ -17,6 +17,7 @@ const TOOLS: { id: ToolId; label: string; key: string }[] = [
   { id: 'note', label: 'Note', key: 'N' },
   { id: 'text', label: 'Text', key: 'T' },
   { id: 'stamp', label: 'Stamp', key: 'K' },
+  { id: 'signature', label: 'Sign', key: 'G' },
 ];
 
 export const SWATCHES: { name: string; color: RGBA }[] = [
@@ -51,6 +52,26 @@ function StampControls() {
           <option key={p.name} value={p.name}>{p.label}</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+/** Which saved signature the Sign tool places, and a way to make or remove them. */
+function SignatureControls() {
+  const { store } = useUi();
+  const { ui } = useSnapshot();
+  if (ui.activeTool !== 'signature') return null;
+  return (
+    <div className="group" aria-label="Signature">
+      {ui.signatures.length > 0 && (
+        <select aria-label="Signature" value={ui.activeSignature ?? ''} onChange={(e) => store.useSignature(e.target.value)}>
+          {ui.activeSignature === undefined && <option value="">Choose…</option>}
+          {ui.signatures.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+      )}
+      <button onClick={() => store.openSignatures()}>Signatures…</button>
     </div>
   );
 }
@@ -153,6 +174,7 @@ export function Toolbar() {
       </div>
       <StyleControls />
       <StampControls />
+      <SignatureControls />
       <div className="group">
         <button aria-pressed={ui.commentsOpen} className={ui.commentsOpen ? 'active' : ''} onClick={() => store.toggleComments()} disabled={!hasPages} title="Comments (C)">
           Comments{threadCount > 0 ? ` (${threadCount})` : ''}

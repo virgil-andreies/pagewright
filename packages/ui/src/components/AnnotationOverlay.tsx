@@ -42,7 +42,15 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
   const original = originals[page.id] ?? EMPTY;
   const clickable = [...original, ...annots];
   const tool = ui.activeTool;
-  const [gesture, setGesture] = useState<Gesture | null>(null);
+  const [gesture, setGestureState] = useState<Gesture | null>(null);
+  // The latest gesture, available to the next event at once. React may not have re-rendered between a pointer move
+  // and the release that follows it (a quick flick, a busy machine), and a handler that read the rendered state
+  // would then see an old position, or not know the gesture had started at all.
+  const gestureRef = useRef<Gesture | null>(null);
+  const setGesture = (g: Gesture | null) => {
+    gestureRef.current = g;
+    setGestureState(g);
+  };
   const hostRef = useRef<HTMLDivElement>(null);
   /** Set while a press landed on an annotation, so the browser does not also start a text selection. */
   const suppressSelection = useRef(false);
@@ -84,7 +92,7 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
     markupPress.current = null;
     store.commitText(); // clicking anywhere finishes the text being typed
 
-    if (tool === 'text' || tool === 'note' || tool === 'stamp') {
+    if (tool === 'text' || tool === 'note' || tool === 'stamp' || tool === 'signature') {
       // The first two open a text box, which must take keyboard focus. If it did so now, the browser would finish
       // this very press (mousedown) by moving focus to the page, and the new box would lose it at once and be
       // discarded. So wait for the release, when the browser is done with focus. Capture the pointer so the
@@ -127,6 +135,7 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
   };
 
   const onMove = (e: React.PointerEvent) => {
+    const gesture = gestureRef.current;
     if (!gesture) return;
     const p = local(e);
     const pdf = toPdf(p);
@@ -172,6 +181,8 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
     if (click && click.tool === tool) {
       if (click.tool === 'stamp') {
         store.addStamp(page.id, click.pdf); // centred on the click
+      } else if (click.tool === 'signature') {
+        store.addSignature(page.id, click.pdf); // centred on the click; opens the dialog if none is chosen
       } else if (click.tool === 'note') {
         // The click is the icon's upper-left corner. The note exists once it has text (see the comments panel).
         store.beginNote(page.id, click.pdf);
@@ -183,7 +194,7 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
       }
       return;
     }
-    const g = gesture;
+    const g = gestureRef.current;
     setGesture(null);
     if (!g) return;
     switch (g.kind) {

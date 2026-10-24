@@ -76,8 +76,8 @@ describe('buildStampAppearance', () => {
 
   it('refuses what it cannot draw yet instead of drawing something wrong', () => {
     expect(() => buildStampAppearance({ ...stamp(), payload: { kind: 'preset', name: 'Nope' } })).toThrow(/unknown stamp/);
-    const typed = { ...stamp(), payload: { kind: 'signature-typed', text: 'Ada', font: 'x' } } as StampAnnot;
-    expect(() => buildStampAppearance(typed)).toThrow(/no appearance yet/);
+    const image = { ...stamp(), payload: { kind: 'image', mime: 'image/png', bytes: new Uint8Array(1) } } as StampAnnot;
+    expect(() => buildStampAppearance(image)).toThrow(/no appearance yet/);
   });
 });
 
@@ -138,14 +138,9 @@ describe('writing stamps', () => {
     expect(get(rotated, 'F')).toEqual(PDFNumber.of(4)); // not NoRotate
   });
 
-  it('says plainly that signatures and images cannot be written yet, rather than writing something wrong', async () => {
-    for (const payload of [
-      { kind: 'signature-typed', text: 'Ada', font: 'x' },
-      { kind: 'signature-drawn', strokes: [] },
-      { kind: 'image', mime: 'image/png', bytes: new Uint8Array(1) },
-    ] as const) {
-      await expect(save([{ ...stamp(), payload } as Annotation])).rejects.toBeInstanceOf(UnsupportedAnnotation);
-    }
+  it('says plainly that images cannot be written yet, rather than writing something wrong', async () => {
+    const payload = { kind: 'image', mime: 'image/png', bytes: new Uint8Array(1) } as const;
+    await expect(save([{ ...stamp(), payload } as Annotation])).rejects.toBeInstanceOf(UnsupportedAnnotation);
   });
 
   it('is read back by PDF.js as a Stamp in the right place', async () => {
