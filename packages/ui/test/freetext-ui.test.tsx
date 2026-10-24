@@ -24,7 +24,7 @@ async function ready() {
     fireEvent.pointerDown(svg, { button: 0, pointerId: 1, ...px(x, y) });
     fireEvent.pointerUp(svg, { pointerId: 1, ...px(x, y) });
   };
-  const box = () => screen.getByLabelText('Text') as HTMLTextAreaElement;
+  const box = () => screen.getByRole('textbox', { name: 'Text' }) as HTMLTextAreaElement;
   const type = (value: string) => fireEvent.change(box(), { target: { value } });
   /** Place a text box with the Text tool and type into it, then commit with Ctrl+Enter. */
   const addText = (x: number, y: number, value: string) => {
@@ -69,15 +69,15 @@ describe('typing a new text box', () => {
     const t = await ready();
     t.tool('Text');
     fireEvent.pointerDown(t.svg, { button: 0, pointerId: 1, ...px(40, 200) });
-    expect(screen.queryByLabelText('Text')).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Text' })).toBeNull();
     fireEvent.pointerUp(t.svg, { pointerId: 1, ...px(40, 200) });
-    expect(screen.getByLabelText('Text')).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Text' })).toBeTruthy();
   });
 
   it('commits with Ctrl+Enter and shows the text on the page', async () => {
     const t = await ready();
     t.addText(40, 200, 'Hello world');
-    expect(screen.queryByLabelText('Text')).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Text' })).toBeNull();
     const [a] = t.texts();
     expect(a).toMatchObject({ text: 'Hello world', fontFamily: 'sans', fontSize: 12 });
     const view = t.svg.querySelector(`[data-annot-id="${a!.id}"]`)!;
@@ -114,7 +114,7 @@ describe('typing a new text box', () => {
     t.click(40, 200);
     t.type('abandoned');
     fireEvent.keyDown(t.box(), { key: 'Escape' });
-    expect(screen.queryByLabelText('Text')).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Text' })).toBeNull();
     expect(t.texts()).toHaveLength(0);
   });
 
@@ -146,7 +146,7 @@ describe('typing a new text box', () => {
     fireEvent.keyDown(window, { key: 'v' }); // the Select shortcut, pressed outside the text box
     t.click(150, 40); // pointer-down on empty page: no blur event is needed
     expect(t.texts().map((a) => a.text)).toEqual(['finish me']);
-    expect(screen.queryByLabelText('Text')).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Text' })).toBeNull();
   });
 
   it('warns while typing characters no text box font can show, and stores ? for them', async () => {

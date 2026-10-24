@@ -327,7 +327,7 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await s.page.screenshot({ path: resolve(SHOTS, 'signature-dialog.png') });
     await clickButton(s.page, 'Save and use');
     await s.page.waitForFunction(() => !document.querySelector('dialog[aria-label="Signatures"]'));
-    check('Save and use closes the dialog and leaves the Sign tool ready', (await s.page.$eval('[role=radio][aria-checked=true]', (e) => e.textContent)) === 'Sign');
+    check('Save and use closes the dialog and leaves the Sign tool ready', (await s.page.$eval('.toolbar [role=radio][aria-checked=true]', (e) => e.getAttribute('aria-label'))) === 'Sign');
 
     // Place it.
     await clickOnPage(s.page, 360, 480);

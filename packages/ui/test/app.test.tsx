@@ -87,3 +87,47 @@ describe('AppShell', () => {
     expect(store.getSnapshot().doc.pages.map((p) => p.id)).toEqual([before[1], before[2], before[0]]);
   });
 });
+
+describe('the toolbar', () => {
+  it('shows the tools as tiles with an icon, grouped under captions, with the shortcut in the corner', async () => {
+    const { open } = setup();
+    await open();
+    const groups = within(screen.getByRole('radiogroup', { name: 'Tool' })).getAllByRole('group');
+    expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual(['Select', 'Mark text', 'Draw', 'Add']);
+    const highlight = screen.getByRole('radio', { name: 'Highlight' }); // the corner key is not part of its name
+    expect(highlight.querySelector('svg')).toBeTruthy();
+    expect(highlight.textContent).toBe('HHighlight'); // the key, then the label, both visible
+    expect(within(groups[2]!).getAllByRole('radio').map((r) => r.getAttribute('aria-label'))).toEqual(['Pen', 'Rectangle', 'Ellipse', 'Line', 'Arrow']);
+  });
+
+  it('gives icon-only buttons a name and a tooltip, which can say more', async () => {
+    const { open } = setup();
+    await open();
+    for (const name of ['Undo', 'Redo', 'Rotate left', 'Rotate right', 'Duplicate', 'Extract', 'Delete', 'Zoom out', 'Zoom in']) {
+      const b = btn(name);
+      expect(b.textContent, name).toBe('');
+      expect(b.querySelector('svg'), name).toBeTruthy();
+      expect(b.getAttribute('data-tip'), name).toBeTruthy();
+    }
+    expect(btn('Delete').getAttribute('data-tip')).toBe('Delete (Del)');
+    expect(btn('Extract').getAttribute('data-tip')).toBe('Extract to a new PDF');
+  });
+
+  it('says what Undo will undo in its tooltip', async () => {
+    const { open } = setup();
+    await open();
+    fireEvent.pointerDown(pages()[1]!, { button: 0, pointerId: 1, clientY: 10 });
+    fireEvent.pointerUp(pages()[1]!, { pointerId: 1, clientY: 10 });
+    await waitFor(() => expect(btn('Delete').disabled).toBe(false));
+    fireEvent.click(btn('Delete'));
+    await waitFor(() => expect(btn('Undo').getAttribute('data-tip')).toMatch(/^Undo .+ \(Ctrl\+Z\)$/));
+  });
+
+  it('keeps Open and Save as icon and text, Save the only filled one', async () => {
+    const { open } = setup();
+    await open();
+    expect(btn('Open').querySelector('svg')).toBeTruthy();
+    expect(btn('Save').className).toContain('primary');
+    expect(document.querySelectorAll('.toolbar-row button.primary')).toHaveLength(1);
+  });
+});

@@ -9,6 +9,11 @@
   --danger: #b42318;
   --page-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
   --canvas-bg: #e4e6eb;
+  --hover: #eef1f4;
+  --accent-soft: #e8f0fe;
+  --accent-strong: #1d4ed8;
+  --tip-bg: #1c1f26;
+  --tip-text: #ffffff;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -22,6 +27,11 @@
     --danger: #f97066;
     --canvas-bg: #0e1013;
     --page-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+    --hover: #272b31;
+    --accent-soft: #1d2a45;
+    --accent-strong: #9dbaf5;
+    --tip-bg: #e8eaee;
+    --tip-text: #14161a;
   }
 }
 
@@ -33,12 +43,45 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
 .sidebar { width: 168px; flex: none; overflow-y: auto; background: var(--surface); border-right: 1px solid var(--border); }
 .main { flex: 1; min-width: 0; }
 
-/* Toolbar */
-.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
-.toolbar .group { display: flex; gap: 4px; }
+/* Toolbar: a row of file, history, page and view actions; below it the tools as tiles, then the active tool's options. */
+.toolbar { display: flex; flex-direction: column; gap: 6px; padding: 6px 12px 8px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.tools-row { align-items: stretch; border-top: 1px solid var(--border); padding-top: 8px; }
+.toolbar .group { display: flex; gap: 4px; align-items: center; }
+.toolbar .caption { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.toolbar .group > .caption { margin-right: 2px; }
+.toolbar button.icon { width: 40px; height: 40px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-color: transparent; background: transparent; }
+.toolbar button.with-icon { height: 40px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; }
+.toolbar button.icon:hover:not(:disabled), .toolbar .tile:hover:not(:disabled):not(.active) { background: var(--hover); border-color: transparent; }
+.toolbar .zoom-level { height: 40px; min-width: 56px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.toolbar .badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-text); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.toolbar button.active .badge { background: var(--accent-text); color: var(--accent); }
+/* Tooltips for icon-only buttons; their names are already on them (aria-label) for screen readers. */
+.tip { position: relative; }
+.tip:hover::after, .tip:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--tip-bg); color: var(--tip-text); font-size: 12px; line-height: 1.3; padding: 4px 8px; border-radius: 6px; white-space: nowrap; z-index: 20; pointer-events: none; }
+.tool-groups { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.tool-group { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-right: 12px; border-right: 1px solid var(--border); }
+.tool-group .tiles { display: flex; gap: 2px; }
+.toolbar .tile { position: relative; width: 66px; height: 56px; padding: 0; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 12px; border-color: transparent; background: transparent; border-radius: 10px; }
+.toolbar .tile.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+.toolbar .tile .key { position: absolute; top: 3px; right: 6px; font-size: 10px; color: var(--muted); }
+.toolbar .tile.active .key { color: var(--accent-strong); }
+.tool-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; flex: 1 1 260px; min-width: 0; }
 .toolbar .swatch { width: 22px; height: 22px; padding: 0; border-radius: 50%; }
 .toolbar .swatch[aria-pressed='true'], .toolbar .style button[aria-pressed='true'] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .toolbar .status { margin-left: auto; color: var(--muted); font-size: 13px; }
+@media (max-width: 1200px) {
+  /* Narrower windows: Comments keeps its icon and count, and its name moves to the tooltip. */
+  .toolbar button.with-icon:has(.badge) .label, .toolbar button.with-icon[aria-label='Comments'] .label { display: none; }
+}
+@media (max-width: 720px) {
+  /* On a phone the tiles shrink to icons with small labels, stay on one row that scrolls sideways, and the captions go. */
+  .toolbar .tile { width: 54px; height: 48px; font-size: 10px; flex: none; }
+  .toolbar .tile .key, .toolbar .caption { display: none; }
+  .tool-groups { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; max-width: 100%; }
+  .tool-group { padding-right: 6px; flex: none; }
+  .toolbar .status { flex-basis: 100%; order: 10; margin-left: 0; font-size: 12px; }
+}
 button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
 button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.45; cursor: default; }

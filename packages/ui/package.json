@@ -5,11 +5,15 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@pagewright/core": "workspace:*",
     "@pagewright/engine": "workspace:*",
     "@pagewright/platform": "workspace:*",
+    "lucide-react": "^1.61.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
