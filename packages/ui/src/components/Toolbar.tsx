@@ -1,4 +1,4 @@
-import { FONT_SIZES, type FontFamily, type RGBA } from '@pagewright/core';
+import { FONT_SIZES, STAMP_PRESETS, type FontFamily, type RGBA } from '@pagewright/core';
 import { listThreads } from '../comments';
 import { applySelectionMarkup, hasSelection } from '../selection';
 import { useSnapshot, useUi } from '../react';
@@ -16,6 +16,7 @@ const TOOLS: { id: ToolId; label: string; key: string }[] = [
   { id: 'arrow', label: 'Arrow', key: 'A' },
   { id: 'note', label: 'Note', key: 'N' },
   { id: 'text', label: 'Text', key: 'T' },
+  { id: 'stamp', label: 'Stamp', key: 'K' },
 ];
 
 export const SWATCHES: { name: string; color: RGBA }[] = [
@@ -34,6 +35,25 @@ const FAMILIES: { id: FontFamily; label: string }[] = [
   { id: 'serif', label: 'Serif' },
   { id: 'mono', label: 'Mono' },
 ];
+
+/** Which stamp the Stamp tool places, and, with a stamp selected, which one it is. */
+function StampControls() {
+  const { store } = useUi();
+  const { doc, ui } = useSnapshot();
+  const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id);
+  const stamp = sel?.type === 'stamp' && sel.origin === 'app' && sel.payload.kind === 'preset' ? sel : undefined;
+  if (!stamp && ui.activeTool !== 'stamp') return null;
+  const current = stamp?.payload.kind === 'preset' ? stamp.payload.name : ui.stampPreset;
+  return (
+    <div className="group" aria-label="Stamp">
+      <select aria-label="Stamp type" value={current} onChange={(e) => store.setStampPreset(e.target.value)}>
+        {STAMP_PRESETS.map((p) => (
+          <option key={p.name} value={p.name}>{p.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 /**
  * Colour and line width (or, for text, font and size). Shown while a drawing or text tool is active, or when
@@ -132,6 +152,7 @@ export function Toolbar() {
         ))}
       </div>
       <StyleControls />
+      <StampControls />
       <div className="group">
         <button aria-pressed={ui.commentsOpen} className={ui.commentsOpen ? 'active' : ''} onClick={() => store.toggleComments()} disabled={!hasPages} title="Comments (C)">
           Comments{threadCount > 0 ? ` (${threadCount})` : ''}

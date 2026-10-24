@@ -68,7 +68,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 /* Layers of a page, bottom to top: canvas, text layer, annotation SVG. The host covers the page and receives its pointer input. */
 .overlay-host { position: absolute; inset: 0; touch-action: pan-y pinch-zoom; }
-.overlay-host:is(.tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow, .tool-note, .tool-text) { cursor: crosshair; touch-action: none; }
+.overlay-host:is(.tool-ink, .tool-rect, .tool-ellipse, .tool-line, .tool-arrow, .tool-note, .tool-text, .tool-stamp) { cursor: crosshair; touch-action: none; }
 .overlay-host:is(.tool-highlight, .tool-underline, .tool-strikeout) { cursor: text; }
 .overlay { position: absolute; inset: 0; pointer-events: none; }
 .overlay .annot { pointer-events: none; }

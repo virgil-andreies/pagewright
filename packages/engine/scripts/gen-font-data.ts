@@ -6,7 +6,8 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { PDFDocument, StandardFonts } from '@cantoo/pdf-lib';
 
-const FONTS = { sans: StandardFonts.Helvetica, serif: StandardFonts.TimesRoman, mono: StandardFonts.Courier } as const;
+// `sansBold` is not a choice for text boxes; stamps use it for their labels.
+const FONTS = { sans: StandardFonts.Helvetica, serif: StandardFonts.TimesRoman, mono: StandardFonts.Courier, sansBold: StandardFonts.HelveticaBold } as const;
 
 const pdf = await PDFDocument.create();
 const fonts = Object.fromEntries(await Promise.all(Object.entries(FONTS).map(async ([k, v]) => [k, await pdf.embedFont(v)])));
@@ -15,7 +16,7 @@ const fonts = Object.fromEntries(await Promise.all(Object.entries(FONTS).map(asy
 const chars = fonts.sans.getCharacterSet().filter((cp: number) => cp >= 32).sort((a: number, b: number) => a - b);
 const byteOf = (cp: number): number => parseInt(fonts.sans.encodeText(String.fromCodePoint(cp)).toString().slice(1, -1), 16);
 
-for (const key of ['serif', 'mono']) {
+for (const key of ['serif', 'mono', 'sansBold']) {
   const other = fonts[key].getCharacterSet().filter((cp: number) => cp >= 32).sort((a: number, b: number) => a - b);
   if (JSON.stringify(other) !== JSON.stringify(chars)) throw new Error(`${key} has a different character set`);
 }

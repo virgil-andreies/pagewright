@@ -224,10 +224,70 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
       if (!(obj instanceof PDFDict)) continue;
       for (const [, v] of obj.entries()) if (v instanceof PDFHexString) strings.push(v.decodeText());
     }
-    check('the saved page lost the highlight, the note and its two replies', !subtypes.includes('Highlight') && subtypes.length === 3, subtypes.join(','));
+    const originalCount = (await PDFDocument.load(readFileSync(SAMPLE))).getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).size();
+    check('the saved page lost exactly the highlight, the note and its two replies', !subtypes.includes('Highlight') && subtypes.length === originalCount - 4, `${originalCount} -> ${subtypes.length}: ${subtypes.join(',')}`);
     check('and kept the underline, strikeout and the other note', subtypes.includes('Underline') && subtypes.includes('StrikeOut') && strings.includes('The speech-bubble icon.'));
     check('nothing of the deleted comments is left anywhere in the file', !strings.some((t) => /Highlight with a comment|A note with a short thread|Agreed, and here is a reply|And a second reply/.test(t)), JSON.stringify(strings));
     check('the other pages are untouched', saved.getPageCount() === 5);
+  },
+
+  async stamps(s) {
+    console.log('Preset stamps');
+    await openPdf(s.page, SAMPLE);
+    await chooseTool(s.page, 'Stamp');
+    await s.page.select('select[aria-label="Stamp type"]', 'Confidential');
+    await clickOnPage(s.page, 420, 560);
+    await sleep(200);
+    const label = () => s.page.$$eval(`${ANNOT} text`, (e) => e.map((x) => x.textContent));
+    check('clicking the page places the chosen stamp', (await label()).includes('CONFIDENTIAL'), JSON.stringify(await label()));
+    check('it is selected, with four resize handles, and the tool is back to Select', (await count(s.page, 'svg.overlay [data-handle]')) === 4 && (await count(s.page, '[role=radio][aria-checked=true]')) === 1);
+
+    // The frame's size on screen, to check the proportions while resizing.
+    const frame = () => s.page.$eval(`${ANNOT} rect:not(.selection-outline)`, (e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; });
+    const before = await frame();
+    const handle = (await s.page.$('svg.overlay [data-handle="se"]'))!.boundingBox();
+    const h = (await handle)!;
+    await s.page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await s.page.mouse.down();
+    await s.page.mouse.move(h.x + h.width / 2 + 60, h.y + h.height / 2 + 10, { steps: 6 });
+    await s.page.mouse.up();
+    await sleep(150);
+    const after = await frame();
+    check('dragging a corner makes it bigger', after.w > before.w + 20, `${before.w} -> ${after.w}`);
+    check('and keeps its proportions', Math.abs(after.w / after.h - before.w / before.h) < 0.05, `${before.w / before.h} vs ${after.w / after.h}`);
+    check('and keeps the opposite corner where it was', Math.abs(after.x - before.x) < 2 && Math.abs(after.y - before.y) < 2);
+
+    await s.page.select('select[aria-label="Stamp type"]', 'Approved');
+    await sleep(150);
+    check('choosing another type changes the selected stamp', (await label()).includes('APPROVED') && !(await label()).includes('CONFIDENTIAL'));
+    const final = await frame(); // the type changed, so the width did too: Approved is narrower than Confidential
+    await s.page.screenshot({ path: resolve(SHOTS, 'stamp-editor.png') });
+
+    // Save, then open the saved file: PDF.js draws the stamp from the appearance stream we wrote.
+    await clickButton(s.page, 'Save');
+    const file = await waitForDownload();
+    const saved = await PDFDocument.load(readFileSync(file));
+    const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    const stampDict = annots.asArray().map((_, i) => annots.lookup(i, PDFDict)).find((d) => (d.lookup(PDFName.of('Subtype')) as PDFName).decodeText() === 'Stamp');
+    check('the saved file has a Stamp annotation named Approved', !!stampDict && (stampDict.lookup(PDFName.of('Name')) as PDFName).decodeText() === 'Approved');
+    const rect = stampDict!.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Number(n.toString()));
+    const expectedWidth = final.w / (96 / 72);
+    // (the frame measured on screen is inset by half its border on each side, so the saved box is a few points wider)
+    check('whose size matches what was on screen', Math.abs(rect[2]! - rect[0]! - expectedWidth) < 5, `${rect[2]! - rect[0]!} vs ${expectedWidth}`);
+
+    await s.page.goto(s.url);
+    await openPdf(s.page, file);
+    const inked = await s.page.evaluate((r) => {
+      // Green pixels (the Approved colour) in the saved stamp's box, in the page image PDF.js made from our appearance stream.
+      const c = document.querySelector('.page-view canvas') as HTMLCanvasElement;
+      const scale = c.width / 612; // canvas pixels per PDF point
+      const d = c.getContext('2d')!.getImageData(Math.round(r[0]! * scale), Math.round((792 - r[3]!) * scale), Math.round((r[2]! - r[0]!) * scale), Math.round((r[3]! - r[1]!) * scale)).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 1]! > d[i]! + 40 && d[i + 1]! > d[i + 2]! + 40) n++;
+      return n;
+    }, rect);
+    check('opened again, PDF.js draws the saved stamp in green where it belongs', inked > 300, `${inked} green pixels`);
+    await s.page.screenshot({ path: resolve(SHOTS, 'stamp-saved.png') });
   },
 
   async text(s) {

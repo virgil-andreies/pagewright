@@ -280,7 +280,8 @@ Annotation mapping:
 | shape line/arrow | /Line | `/LE` for arrow end |
 | note | /Text | standard icon drawn in AP |
 | freetext | /FreeText | standard PDF font (Helvetica, Times or Courier, WinAnsi); wrapped text in AP; `/C` left out (it would be drawn as a background); `/Contents` is the text |
-| stamp | /Stamp | image XObject or vector paths in AP |
+| stamp (preset) | /Stamp | rounded frame and bold label drawn from vectors and Helvetica-Bold, scaled to the rectangle with its proportions kept; `/Name` is the preset, `/Subj` its label, `/Contents` is free for a comment |
+| stamp (signature, image) | /Stamp | image XObject or vector paths in AP (not built yet) |
 
 **Annotations that came with the source file.** They are drawn by PDF.js in the page image and are never re-drawn or re-written by us. To let the user select, read and delete them, `getSourceAnnotations` reports each one in detail (read in the background after opening) and `importedAnnotations` maps it to our types with `origin: 'imported'`: replies are folded into the parent's comment thread; links, form fields and popups are not selectable. Deleting one records its id, and its replies' ids, in `WorkingDocument.removedImported` for that page instance (so a duplicated page has its own set; the command is undoable). On screen the deleted annotations are left out of the page image with PDF.js's `operationsFilter`, which skips the operations between that annotation's `beginAnnotation(id)` and `endAnnotation`. On save, `copyPageWithout` takes them (plus their popups and replies) out of the *source page's* `/Annots` before the page is copied, so nothing of them, including comment text, reaches the output.
 

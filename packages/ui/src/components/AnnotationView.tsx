@@ -1,7 +1,7 @@
 import {
   BASELINE_RATIO, NOTE_ICON_LINE, NOTE_INK, NOTE_SIZE, TEXT_PADDING, annotationBounds, arrowHead, effectiveRotation, freeTextHandles,
-  freeTextLines, lineAdvance, noteIcon, pdfToViewport, quadBounds, shapeHandles, textWidth,
-  type Annotation, type FontFamily, type FreeTextAnnot, type NoteAnnot, type PageGeometry, type Point, type Quad, type RGBA, type ShapeAnnot,
+  freeTextLines, lineAdvance, noteIcon, pdfToViewport, quadBounds, shapeHandles, stampHandles, stampLayout, stampPreset, stampScale, textWidth,
+  type Annotation, type FontFamily, type FreeTextAnnot, type StampAnnot, type NoteAnnot, type PageGeometry, type Point, type Quad, type RGBA, type ShapeAnnot,
 } from '@pagewright/core';
 
 export const rgb = (c: { r: number; g: number; b: number }) =>
@@ -59,6 +59,9 @@ export function AnnotationView({ annot, geometry, scale, selected }: ViewProps &
       break;
     case 'freetext':
       body = <FreeTextBody text={annot} geometry={geometry} scale={scale} />;
+      break;
+    case 'stamp':
+      body = <StampBody stamp={annot} geometry={geometry} scale={scale} />;
       break;
     default:
       break; // notes, free text and stamps arrive with their own views
@@ -136,6 +139,39 @@ function FreeTextBody({ text, geometry, scale }: { text: FreeTextAnnot; geometry
   );
 }
 
+/**
+ * A preset stamp, drawn from the same layout the saved PDF uses: the artwork keeps its proportions and is centred
+ * in the stamp's rectangle. It turns with the page, like any annotation without the NoRotate flag.
+ */
+function StampBody({ stamp, geometry, scale }: { stamp: StampAnnot; geometry: PageGeometry; scale: number }) {
+  if (stamp.payload.kind !== 'preset') return null;
+  const preset = stampPreset(stamp.payload.name);
+  if (!preset) return null;
+  const L = stampLayout(preset.label);
+  const s = stampScale(L, stamp.rect);
+  const anchor = pdfToViewport(geometry, scale, { x: stamp.rect.x, y: stamp.rect.y + stamp.rect.h });
+  const colour = rgb(stamp.color);
+  return (
+    <g
+      transform={`translate(${anchor.x} ${anchor.y}) rotate(${effectiveRotation(geometry)}) scale(${scale}) translate(${(stamp.rect.w - L.w * s) / 2} ${(stamp.rect.h - L.h * s) / 2}) scale(${s})`}
+    >
+      <rect x={L.border / 2} y={L.border / 2} width={L.w - L.border} height={L.h - L.border} rx={L.radius} fill="none" stroke={colour} strokeWidth={L.border} />
+      <text
+        x={L.textX}
+        y={L.baseline}
+        fill={colour}
+        fontSize={L.fontSize}
+        fontWeight="bold"
+        fontFamily={FONT_STACKS.sans}
+        textLength={L.textWidth}
+        lengthAdjust="spacing"
+      >
+        {preset.label}
+      </text>
+    </g>
+  );
+}
+
 function NoteBody({ note, vp, scale }: { note: NoteAnnot; vp: (p: Point) => Point; scale: number }) {
   const a = vp(note.position);
   const fill = rgb(note.color);
@@ -185,8 +221,8 @@ function ShapeBody({ shape: s, vp, scale }: { shape: ShapeAnnot; vp: (p: Point) 
 }
 
 /** Resize handles for a selected shape or text box. They carry `data-handle` so the overlay can tell them apart. */
-export function Handles({ shape, geometry, scale }: ViewProps & { shape: ShapeAnnot | FreeTextAnnot }) {
-  const handles = shape.type === 'freetext' ? freeTextHandles(shape) : shapeHandles(shape);
+export function Handles({ shape, geometry, scale }: ViewProps & { shape: ShapeAnnot | FreeTextAnnot | StampAnnot }) {
+  const handles = shape.type === 'freetext' ? freeTextHandles(shape) : shape.type === 'stamp' ? stampHandles(shape) : shapeHandles(shape);
   return (
     <>
       {handles.map((h) => {

@@ -15,7 +15,7 @@ export function PagewrightProvider({ store, children }: { store: AppStore; child
 }
 
 const TOOL_KEYS: Record<string, ToolId> = {
-  v: 'select', h: 'highlight', u: 'underline', s: 'strikeout', p: 'ink', r: 'rect', e: 'ellipse', l: 'line', a: 'arrow', n: 'note', t: 'text',
+  v: 'select', h: 'highlight', u: 'underline', s: 'strikeout', p: 'ink', r: 'rect', e: 'ellipse', l: 'line', a: 'arrow', n: 'note', t: 'text', k: 'stamp',
 };
 
 function useShortcuts(store: AppStore) {

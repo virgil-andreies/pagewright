@@ -3,7 +3,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { PDFDocument, StandardFonts, degrees, rgb } from '@cantoo/pdf-lib';
 import {
-  History, fitFreeText, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
+  History, fitFreeText, newStampRect, stampPreset, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
   type Annotation, type PageId, type Point, type Rect, type ShapeAnnot, type SourceDoc,
 } from '@pagewright/core';
 import { PdfLibWriter, defaultSaveOpts } from '../src';
@@ -130,6 +130,17 @@ async function main() {
   h.execute(addAnnotation(text('ft-big', 'p5', 'sans', 24, 72, 40, 460, 'Large text', blue2)));
   h.execute(addAnnotation(text('ft-p3', 'p3', 'sans', 14, 72, 540, 300, 'Free text on a rotated page turns with the page.')));
   h.execute(addAnnotation(text('ft-p4', 'p4', 'serif', 14, 72, 540, 300, 'Free text on the offset-CropBox page.', blue2)));
+
+  // Preset stamps: on the plain page, the rotated page and the offset-CropBox page.
+  const stampAt = (id: string, pageId: string, name: string, cx: number, cy: number, width = 150): Annotation => {
+    const preset = stampPreset(name)!;
+    return { ...common, type: 'stamp', id, pageId, color: preset.color, payload: { kind: 'preset', name }, rect: newStampRect(preset, { x: cx, y: cy }, width) };
+  };
+  h.execute(addAnnotation(stampAt('stamp-p1a', 'p1', 'Approved', 200, 330)));
+  h.execute(addAnnotation(stampAt('stamp-p1b', 'p1', 'Confidential', 420, 330, 190)));
+  h.execute(addAnnotation(stampAt('stamp-p1c', 'p1', 'NotApproved', 200, 250)));
+  h.execute(addAnnotation(stampAt('stamp-p3', 'p3', 'Void', 300, 450)));
+  h.execute(addAnnotation(stampAt('stamp-p4', 'p4', 'Draft', 250, 400)));
 
   // Extra rotation on top of the source rotation: p2 -> 90, p3 -> 90 + 90.
   h.execute(rotatePages(['p2', 'p3'], 90));

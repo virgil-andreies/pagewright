@@ -1,5 +1,5 @@
-import type { FontFamily, FreeTextAnnot, InkAnnot, NoteAnnot, Point, Quad, RGBA, ShapeAnnot, TextMarkupAnnot } from '@pagewright/core';
-import { BASELINE_RATIO, NOTE_ICON_LINE, TEXT_PADDING, freeTextLines, lineAdvance, toWinAnsi, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, quadBounds } from '@pagewright/core';
+import type { FontFamily, FreeTextAnnot, InkAnnot, NoteAnnot, Point, Quad, RGBA, ShapeAnnot, StampAnnot, TextMarkupAnnot } from '@pagewright/core';
+import { BASELINE_RATIO, NOTE_ICON_LINE, stampLayout, stampPreset, stampScale, TEXT_PADDING, freeTextLines, lineAdvance, toWinAnsi, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, quadBounds } from '@pagewright/core';
 
 /** A Form XObject description, independent of pdf-lib so it can be unit tested as plain data. */
 export interface AppearanceStream {
@@ -11,7 +11,7 @@ export interface AppearanceStream {
   /** Constant opacity applied through ExtGState /ca and /CA. */
   opacity: number;
   /** A standard font the content refers to as /F1; the writer adds it to the stream's resources. */
-  font?: FontFamily;
+  font?: FontFamily | 'sansBold';
 }
 
 const n = (v: number) => {
@@ -189,4 +189,54 @@ export function buildFreeTextAppearance(a: FreeTextAnnot): AppearanceStream {
   });
   ops.push('ET');
   return { bbox: [x, y, x + w, y + h], content: ops.join('\n'), multiply: false, opacity: a.opacity * a.color.a, font: a.fontFamily };
+}
+
+/** A rounded rectangle as PDF path operators, with its lower-left corner at (x, y). */
+function roundedRectPath(x: number, y: number, w: number, h: number, r: number): string[] {
+  const k = r * (1 - KAPPA); // distance from a corner to the Bezier control point
+  const [l, b, rt, t] = [x, y, x + w, y + h];
+  return [
+    `${n(l + r)} ${n(b)} m`,
+    `${n(rt - r)} ${n(b)} l`,
+    `${n(rt - k)} ${n(b)} ${n(rt)} ${n(b + k)} ${n(rt)} ${n(b + r)} c`,
+    `${n(rt)} ${n(t - r)} l`,
+    `${n(rt)} ${n(t - k)} ${n(rt - k)} ${n(t)} ${n(rt - r)} ${n(t)} c`,
+    `${n(l + r)} ${n(t)} l`,
+    `${n(l + k)} ${n(t)} ${n(l)} ${n(t - k)} ${n(l)} ${n(t - r)} c`,
+    `${n(l)} ${n(b + r)} l`,
+    `${n(l)} ${n(b + k)} ${n(l + k)} ${n(b)} ${n(l + r)} ${n(b)} c`,
+    'h',
+  ];
+}
+
+/**
+ * A preset stamp: a rounded frame and a bold label in the preset's colour. The artwork keeps its proportions and
+ * is centred in the annotation's rectangle at the largest size that fits. The editor draws from the same layout.
+ */
+export function buildStampAppearance(a: StampAnnot): AppearanceStream {
+  if (a.payload.kind !== 'preset') throw new Error(`stamp payload "${a.payload.kind}" has no appearance yet`);
+  const preset = stampPreset(a.payload.name);
+  if (!preset) throw new Error(`unknown stamp "${a.payload.name}"`);
+  const L = stampLayout(preset.label);
+  const s = stampScale(L, a.rect);
+  const W = L.w * s;
+  const H = L.h * s;
+  const left = a.rect.x + (a.rect.w - W) / 2;
+  const top = a.rect.y + a.rect.h - (a.rect.h - H) / 2;
+  const border = L.border * s;
+  const ops = [
+    `${rgb(a.color)} RG`,
+    `${n(border)} w`,
+    // The frame is stroked on its centre line, so inset it by half the stroke to stay inside the box.
+    ...roundedRectPath(left + border / 2, top - H + border / 2, W - border, H - border, L.radius * s),
+    'S',
+    'BT',
+    `/F1 ${n(L.fontSize * s)} Tf`,
+    `${rgb(a.color)} rg`,
+    `1 0 0 1 ${n(left + L.textX * s)} ${n(top - L.baseline * s)} Tm`,
+    `${hex(toWinAnsi(preset.label))} Tj`,
+    'ET',
+  ];
+  const { x, y, w, h } = a.rect;
+  return { bbox: [x, y, x + w, y + h], content: ops.join('\n'), multiply: false, opacity: a.opacity * a.color.a, font: 'sansBold' };
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  NOTE_FILL, constrainDrag, hitTest, pdfToViewport, resizeFreeText, resizeShape, simplifyPolyline, translateAnnotation, viewportToPdf,
-  type Annotation, type PageGeometry, type PageRef, type Point, type ResizeHandle, type ShapeAnnot, type TextHandle,
+  NOTE_FILL, constrainDrag, hitTest, pdfToViewport, resizeFreeText, resizeShape, resizeStamp, simplifyPolyline, translateAnnotation, viewportToPdf,
+  type Annotation, type PageGeometry, type PageRef, type Point, type ResizeHandle, type ShapeAnnot, type StampHandle, type TextHandle,
 } from '@pagewright/core';
 import { useSnapshot, useUi } from '../react';
 import { hasSelection } from '../selection';
@@ -23,7 +23,7 @@ const HIT_SLOP_PX = 5;
 type Gesture =
   | { kind: 'ink'; points: Point[] } // PDF coordinates
   | { kind: 'shape'; tool: ShapeTool; a: Point; b: Point; constrain: boolean }
-  | { kind: 'edit'; original: Annotation; current: Annotation; from: Point; handle?: ResizeHandle | TextHandle; moved: boolean };
+  | { kind: 'edit'; original: Annotation; current: Annotation; from: Point; handle?: ResizeHandle | TextHandle | StampHandle; moved: boolean };
 
 /**
  * Our annotations are drawn here, not by PDF.js, so editing is instant and independent of the PDF
@@ -84,8 +84,8 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
     markupPress.current = null;
     store.commitText(); // clicking anywhere finishes the text being typed
 
-    if (tool === 'text' || tool === 'note') {
-      // These tools open a text box, which must take keyboard focus. If it did so now, the browser would finish
+    if (tool === 'text' || tool === 'note' || tool === 'stamp') {
+      // The first two open a text box, which must take keyboard focus. If it did so now, the browser would finish
       // this very press (mousedown) by moving focus to the page, and the new box would lose it at once and be
       // discarded. So wait for the release, when the browser is done with focus. Capture the pointer so the
       // release is seen even if the mouse has moved off the page.
@@ -95,8 +95,8 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
     }
 
     if (tool === 'select') {
-      const handle = (e.target as SVGElement).dataset?.handle as ResizeHandle | TextHandle | undefined;
-      if (handle && (selected?.type === 'shape' || selected?.type === 'freetext') && selected.origin === 'app') {
+      const handle = (e.target as SVGElement).dataset?.handle as ResizeHandle | TextHandle | StampHandle | undefined;
+      if (handle && (selected?.type === 'shape' || selected?.type === 'freetext' || selected?.type === 'stamp') && selected.origin === 'app') {
         suppressSelection.current = true;
         e.currentTarget.setPointerCapture?.(e.pointerId);
         setGesture({ kind: 'edit', original: selected, current: selected, from: pdf, handle, moved: false });
@@ -146,7 +146,9 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
             ? resizeFreeText(original, handle as TextHandle, pdf)
             : handle && original.type === 'shape'
               ? resizeShape(original, handle as ResizeHandle, pdf)
-              : translateAnnotation(original, pdf.x - from.x, pdf.y - from.y);
+              : handle && original.type === 'stamp'
+                ? resizeStamp(original, handle as StampHandle, pdf)
+                : translateAnnotation(original, pdf.x - from.x, pdf.y - from.y);
         const start = toViewport(from);
         setGesture({ ...gesture, current, moved: gesture.moved || Math.hypot(p.x - start.x, p.y - start.y) >= 1 });
         break;
@@ -168,7 +170,9 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
     const click = clickAt.current;
     clickAt.current = null;
     if (click && click.tool === tool) {
-      if (click.tool === 'note') {
+      if (click.tool === 'stamp') {
+        store.addStamp(page.id, click.pdf); // centred on the click
+      } else if (click.tool === 'note') {
         // The click is the icon's upper-left corner. The note exists once it has text (see the comments panel).
         store.beginNote(page.id, click.pdf);
       } else {
@@ -232,7 +236,7 @@ export function AnnotationOverlay({ page, geometry, scale, width, height, childr
         {shown.map((a) => (
           <AnnotationView key={a.id} annot={a} geometry={geometry} scale={scale} selected={a.id === selectedId} />
         ))}
-        {tool === 'select' && !typing && (shownSelected?.type === 'shape' || shownSelected?.type === 'freetext') && shownSelected.origin === 'app' && (
+        {tool === 'select' && !typing && (shownSelected?.type === 'shape' || shownSelected?.type === 'freetext' || shownSelected?.type === 'stamp') && shownSelected.origin === 'app' && (
           <Handles shape={shownSelected} geometry={geometry} scale={scale} />
         )}
         {draft && <AnnotationView annot={draft} geometry={geometry} scale={scale} />}

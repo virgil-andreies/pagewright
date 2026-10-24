@@ -1,13 +1,13 @@
 import {
-  batch, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
-  type Annotation, type AnnotComment, type AnnotId, type SourceAnnotation, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
+  DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  type Annotation, type AnnotComment, type AnnotId, type SourceAnnotation, type StampAnnot, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
 import type { PickedFile, Platform } from '@pagewright/platform';
 
 export type MarkupType = 'highlight' | 'underline' | 'strikeout';
 export type ShapeTool = 'rect' | 'ellipse' | 'line' | 'arrow';
-export type ToolId = 'select' | MarkupType | 'ink' | ShapeTool | 'note' | 'text';
+export type ToolId = 'select' | MarkupType | 'ink' | ShapeTool | 'note' | 'text' | 'stamp';
 
 /** Stroke and fill for the drawing tools. Changing it also restyles the selected ink or shape. */
 export interface DrawStyle {
@@ -46,6 +46,8 @@ export interface UiState {
   zoom: number;
   activeTool: ToolId;
   drawStyle: DrawStyle;
+  /** Which preset stamp the Stamp tool places next (a name from STAMP_PRESETS). */
+  stampPreset: string;
   commentsOpen: boolean;
   textEdit?: TextEdit;
   /** A note being placed: it becomes an annotation only once it has text (so nothing empty is left behind). */
@@ -93,7 +95,7 @@ const MAX_ZOOM = 4;
 
 export class AppStore {
   readonly history = new History(emptyDocument());
-  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, commentsOpen: false, selection: new Set(), currentPage: 0, notices: [] };
+  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, stampPreset: DEFAULT_STAMP.name, commentsOpen: false, selection: new Set(), currentPage: 0, notices: [] };
   private snap!: Snapshot;
   private listeners = new Set<() => void>();
   private renderDocs = new Map<SourceId, RenderDoc>();
@@ -275,7 +277,7 @@ export class AppStore {
     } as const);
   }
 
-  private addDrawn(partial: { type: 'ink' | 'shape' | 'note' | 'freetext'; pageId: PageId; color: RGBA } & Record<string, unknown>): AnnotId {
+  private addDrawn(partial: { type: 'ink' | 'shape' | 'note' | 'freetext' | 'stamp'; pageId: PageId; color: RGBA } & Record<string, unknown>): AnnotId {
     const now = new Date().toISOString();
     const id = this.newId();
     this.history.execute(
@@ -287,6 +289,33 @@ export class AppStore {
   /** Replaces an annotation (after a move, resize or restyle). One command, so one undo step. */
   updateAnnotation(next: Annotation): void {
     this.history.execute(updateAnnotation({ ...next, modifiedAt: new Date().toISOString() }));
+  }
+
+  // ---- Stamps ----------------------------------------------------------------------------------
+
+  /**
+   * Places the chosen preset stamp centred on `center`. It becomes the selection and the tool goes back to Select,
+   * so it can be moved or resized straight away.
+   */
+  addStamp(pageId: PageId, center: Point): AnnotId | undefined {
+    const preset = findStampPreset(this.ui.stampPreset) ?? DEFAULT_STAMP;
+    const id = this.addDrawn({
+      type: 'stamp', pageId, color: preset.color, rect: newStampRect(preset, center), payload: { kind: 'preset', name: preset.name },
+    });
+    this.patch({ activeTool: 'select', selectedAnnot: { pageId, id } });
+    return id;
+  }
+
+  /** Chooses the preset for the next stamp, and changes the selected stamp to it if one is selected. */
+  setStampPreset(name: string): void {
+    const preset = findStampPreset(name);
+    if (!preset) return;
+    this.patch({ stampPreset: preset.name });
+    const sel = this.ui.selectedAnnot;
+    const a = sel && this.history.current.annotations[sel.pageId]?.find((x) => x.id === sel.id);
+    if (a?.type === 'stamp' && a.origin === 'app' && a.payload.kind === 'preset' && a.payload.name !== preset.name) {
+      this.updateAnnotation(changeStampPreset(a as StampAnnot, preset));
+    }
   }
 
   // ---- Free text -----------------------------------------------------------------------

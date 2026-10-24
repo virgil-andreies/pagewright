@@ -1,9 +1,9 @@
-import { annotationBounds, NOTE_SIZE, type Annotation, type FontFamily, type FreeTextAnnot, type InkAnnot, type NoteAnnot, type RGBA, type ShapeAnnot } from '@pagewright/core';
+import { annotationBounds, NOTE_SIZE, type Annotation, type FontFamily, type FreeTextAnnot, type InkAnnot, type NoteAnnot, type RGBA, type ShapeAnnot, type StampAnnot, stampPreset } from '@pagewright/core';
 import {
   PDFArray, PDFBool, PDFDict, PDFHexString, PDFName, PDFString,
   type PDFDocument, type PDFPage, type PDFRef,
 } from '@cantoo/pdf-lib';
-import { buildFreeTextAppearance, buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
+import { buildFreeTextAppearance, buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildStampAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
 
 export interface WriteContext {
   pdf: PDFDocument;
@@ -34,16 +34,19 @@ export function pdfDate(iso: string): string {
   return `D:${d.toISOString().replace(/[-:T]/g, '').slice(0, 14)}Z`;
 }
 
-const FONTS: Record<FontFamily, { base: string; da: string }> = {
+type FontKey = FontFamily | 'sansBold';
+
+const FONTS: Record<FontKey, { base: string; da: string }> = {
   sans: { base: 'Helvetica', da: 'Helv' },
+  sansBold: { base: 'Helvetica-Bold', da: 'HeBo' },
   serif: { base: 'Times-Roman', da: 'TiRo' },
   mono: { base: 'Courier', da: 'Cour' },
 };
 
 /** One font object per family per document, shared by every annotation that uses it. */
-const fontRefs = new WeakMap<PDFDocument, Map<FontFamily, PDFRef>>();
+const fontRefs = new WeakMap<PDFDocument, Map<FontKey, PDFRef>>();
 
-function standardFont(pdf: PDFDocument, family: FontFamily): PDFRef {
+function standardFont(pdf: PDFDocument, family: FontKey): PDFRef {
   let perDoc = fontRefs.get(pdf);
   if (!perDoc) fontRefs.set(pdf, (perDoc = new Map()));
   let ref = perDoc.get(family);
@@ -123,8 +126,13 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
         return this.writeNote(ctx, annot);
       case 'freetext':
         return this.writeFreeText(ctx, annot);
-      default:
-        throw new UnsupportedAnnotation(annot.type);
+      case 'stamp':
+        return this.writeStamp(ctx, annot);
+      default: {
+        // Every annotation type is written. If a new one is added to the model, this stops compiling until it is handled.
+        const unhandled: never = annot;
+        throw new UnsupportedAnnotation(String((unhandled as { type?: string }).type));
+      }
     }
   }
 
@@ -168,6 +176,19 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
     dict.set(PDFName.of('Q'), ctx.pdf.context.obj(0));
     dict.set(PDFName.of('BS'), context.obj({ W: 0, S: 'S' }));
     dict.set(PDFName.of('AP'), context.obj({ N: registerAppearance(ctx, ap) }));
+    return this.attach(ctx, dict);
+  }
+
+  private writeStamp(ctx: WriteContext, annot: StampAnnot): PDFRef {
+    if (annot.payload.kind !== 'preset') throw new UnsupportedAnnotation(`stamp (${annot.payload.kind})`);
+    const preset = stampPreset(annot.payload.name);
+    if (!preset) throw new UnsupportedAnnotation(`stamp "${annot.payload.name}"`);
+    const ap = buildStampAppearance(annot);
+    const dict = this.commonEntries(ctx, annot, 'Stamp', ap.bbox);
+    // /Name is the stamp's icon name and /Subj is what viewers list it as. /Contents stays free for a comment.
+    dict.set(PDFName.of('Name'), PDFName.of(preset.name));
+    dict.set(PDFName.of('Subj'), PDFHexString.fromText(preset.label));
+    dict.set(PDFName.of('AP'), ctx.pdf.context.obj({ N: registerAppearance(ctx, ap) }));
     return this.attach(ctx, dict);
   }
 
