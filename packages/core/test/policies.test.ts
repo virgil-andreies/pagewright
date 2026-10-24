@@ -30,6 +30,19 @@ describe('preflight', () => {
     const r = preflight(docWith(src('a', { data: memorySource(new Uint8Array(3 * 1024 * 1024)) })), opts);
     expect(r.errors).toEqual([{ code: 'OutOfMemoryRisk', estimateMB: 14, budgetMB: 1 }]); // 3 MB x 4.5
   });
+  it('counts image stamps toward the memory estimate, each picture once', () => {
+    const bytes = new Uint8Array(2 * 1024 * 1024);
+    const stamp = (id: string, b = bytes) => ({
+      id, type: 'stamp' as const, pageId: 'p0', author: 'A', createdAt: '', modifiedAt: '', opacity: 1, origin: 'app' as const,
+      color: { r: 0, g: 0, b: 0, a: 1 }, rect: { x: 0, y: 0, w: 10, h: 10 }, payload: { kind: 'image' as const, mime: 'image/png' as const, bytes: b },
+    });
+    const h = new History(docWith(src('a', { data: memorySource(new Uint8Array(1024 * 1024)) })));
+    h.execute(addAnnotation(stamp('i1')));
+    h.execute(addAnnotation(stamp('i2'))); // a duplicate: the same picture
+    expect(preflight(h.current, opts).errors).toEqual([{ code: 'OutOfMemoryRisk', estimateMB: 14, budgetMB: 1 }]); // (1 + 2) MB x 4.5
+    h.execute(addAnnotation(stamp('i3', new Uint8Array(2 * 1024 * 1024))));
+    expect(preflight(h.current, opts).errors).toEqual([{ code: 'OutOfMemoryRisk', estimateMB: 23, budgetMB: 1 }]); // (1 + 2 + 2) MB x 4.5
+  });
   it('notes dropped outlines on merge', () => {
     expect(preflight(docWith(src('a'), src('b')), opts).notices).toContain('OutlinesDropped');
   });
