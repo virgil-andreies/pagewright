@@ -16,7 +16,7 @@ A PDF app for organising pages and marking up documents. It runs in the browser 
 - Highlight, underline and strike out exactly the text you select
 - Pen, rectangle, ellipse, line and arrow; text boxes (Helvetica, Times or Courier)
 - Preset stamps (Approved, Draft, Confidential and more), movable and resizable
-- Typed visual signatures in four handwriting styles, kept on your device, drawn as vector shapes so they look the same in every viewer (they are pictures of a name, not digital signatures)
+- Typed visual signatures in four handwriting styles, or drawn by hand with a mouse, finger or pen, kept on your device and saved as vector shapes so they look the same in every viewer (they are pictures of a name, not digital signatures)
 - Notes and comments, with replies and a comments panel
 - Annotations that were already in a PDF can be selected, read and deleted (not edited)
 
@@ -78,7 +78,7 @@ The design, the data model and the decisions behind them are in [docs/MODULE_SPE
 
 ## Roadmap
 
-- Drawn signatures and image stamps
+- Image stamps
 - Unicode text in text boxes
 - Electron shell (desktop) and Capacitor shell (mobile)
 - Checking the saved annotations in more viewers

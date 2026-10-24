@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { artSvgPath, type RGBA, type SignatureArt } from '@pagewright/core';
 import { useSnapshot, useUi } from '../react';
 import { SIGNATURE_INKS, type AppStore } from '../store';
+import { DrawPad, type Strokes } from './DrawPad';
 import { Modal } from './Modal';
 
 const css = (c: RGBA) => `rgb(${Math.round(c.r * 255)} ${Math.round(c.g * 255)} ${Math.round(c.b * 255)})`;
@@ -66,16 +67,19 @@ export function SignatureDialog() {
   const [ink, setInk] = useState(0);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<'type' | 'draw'>('type');
+  const [strokes, setStrokes] = useState<Strokes>([]);
   const previews = useStylePreviews(store, text, fonts.map((f) => f.id));
   const chosen = previews[fontId];
   const ready = chosen?.state === 'ready' ? chosen : undefined;
   const color = SIGNATURE_INKS[ink]!.color;
 
+  const drawn = mode === 'draw' && strokes.length > 0;
   const create = async () => {
     setBusy(true);
     setError(undefined);
     try {
-      const saved = await store.createSignature(text, fontId, color);
+      const saved = mode === 'draw' ? await store.createDrawnSignature(text, strokes, color) : await store.createSignature(text, fontId, color);
       store.useSignature(saved.id); // ready to place; closes the dialog
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -111,39 +115,56 @@ export function SignatureDialog() {
 
       <section aria-label="New signature">
         <h3>New signature</h3>
-        {!maker ? (
+        <div role="radiogroup" aria-label="Method" className="sig-methods">
+          {(['type', 'draw'] as const).map((m) => (
+            <button type="button" key={m} role="radio" aria-checked={mode === m} className={mode === m ? 'active' : ''} onClick={() => setMode(m)}>
+              {m === 'type' ? 'Type' : 'Draw'}
+            </button>
+          ))}
+        </div>
+        {mode === 'type' && !maker ? (
           <p className="empty-hint">Typed signatures are not available here.</p>
         ) : (
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (ready && !busy) void create();
+              if ((mode === 'draw' ? drawn : ready) && !busy) void create();
             }}
           >
             <label className="sig-field">
-              Your name
+              {mode === 'draw' ? 'Name (optional, to tell signatures apart)' : 'Your name'}
               <input value={text} onChange={(e) => setText(e.target.value)} autoFocus placeholder="Type your name" />
             </label>
 
-            <div role="radiogroup" aria-label="Style" className="sig-styles">
-              {fonts.map((f) => {
-                const p = previews[f.id];
-                return (
-                  <button
-                    type="button"
-                    key={f.id}
-                    role="radio"
-                    aria-checked={f.id === fontId}
-                    aria-label={f.label}
-                    className={f.id === fontId ? 'active' : ''}
-                    onClick={() => setFontId(f.id)}
-                  >
-                    {p?.state === 'ready' ? <SignaturePreview art={p.art} color={color} label={`${f.label} preview`} /> : <span className="sig-placeholder" />}
-                    <span>{f.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {mode === 'type' ? (
+              <div role="radiogroup" aria-label="Style" className="sig-styles">
+                {fonts.map((f) => {
+                  const p = previews[f.id];
+                  return (
+                    <button
+                      type="button"
+                      key={f.id}
+                      role="radio"
+                      aria-checked={f.id === fontId}
+                      aria-label={f.label}
+                      className={f.id === fontId ? 'active' : ''}
+                      onClick={() => setFontId(f.id)}
+                    >
+                      {p?.state === 'ready' ? <SignaturePreview art={p.art} color={color} label={`${f.label} preview`} /> : <span className="sig-placeholder" />}
+                      <span>{f.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <>
+                <DrawPad strokes={strokes} onChange={setStrokes} color={color} />
+                <div className="draw-tools">
+                  <button type="button" disabled={strokes.length === 0} onClick={() => setStrokes(strokes.slice(0, -1))}>Undo stroke</button>
+                  <button type="button" disabled={strokes.length === 0} onClick={() => setStrokes([])}>Clear</button>
+                </div>
+              </>
+            )}
 
             <div className="sig-inks" role="radiogroup" aria-label="Ink">
               {SIGNATURE_INKS.map((c, i) => (
@@ -160,22 +181,22 @@ export function SignatureDialog() {
               ))}
             </div>
 
-            {ready && ready.missing.length > 0 && (
+            {mode === 'type' && ready && ready.missing.length > 0 && (
               <p role="status" className="error-text">
                 This style cannot draw: {ready.missing.join(' ')}. {ready.missing.length === 1 ? 'It is' : 'They are'} left out.
               </p>
             )}
-            {chosen?.state === 'error' && <p role="alert" className="error-text">{chosen.message}</p>}
+            {mode === 'type' && chosen?.state === 'error' && <p role="alert" className="error-text">{chosen.message}</p>}
             {error && <p role="alert" className="error-text">{error}</p>}
 
             <div className="actions">
               <button type="button" onClick={() => store.openSignatures(false)}>Close</button>
-              <button type="submit" className="primary" disabled={!ready || busy}>Save and use</button>
+              <button type="submit" className="primary" disabled={!(mode === 'draw' ? drawn : ready) || busy}>Save and use</button>
             </div>
           </form>
         )}
       </section>
-      {!maker && (
+      {mode === 'type' && !maker && (
         <div className="actions">
           <button onClick={() => store.openSignatures(false)}>Close</button>
         </div>

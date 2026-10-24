@@ -1,5 +1,5 @@
 import {
-  isSignatureArt, newSignatureRect, DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
+  isSignatureArt, strokesToArt, newSignatureRect, DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
   type Annotation, type AnnotComment, type AnnotId, type SignatureArt, type SourceAnnotation, type StampAnnot, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
 } from '@pagewright/core';
 import { AppFailure, defaultSaveOpts, detectSignature, type PdfRenderer, type PdfWriter, type Progress, type RenderDoc } from '@pagewright/engine';
@@ -395,6 +395,18 @@ export class AppStore {
     }
     const { art } = await this.previewSignature(text, fontId);
     const saved: SavedSignature = { id: this.newId(), name: text.trim().replace(/\s+/g, ' '), art, color, createdAt: new Date().toISOString() };
+    await this.saveSignatures([...this.ui.signatures, saved]);
+    return saved;
+  }
+
+  /** Keeps a hand-drawn signature (pen strokes in pad units) under the given name. */
+  async createDrawnSignature(name: string, strokes: readonly (readonly Point[])[], color: RGBA): Promise<SavedSignature> {
+    if (this.ui.signatures.length >= MAX_SAVED_SIGNATURES) {
+      throw new Error(`You can keep up to ${MAX_SAVED_SIGNATURES} signatures. Delete one to make room.`);
+    }
+    const art = strokesToArt(strokes);
+    if (!art) throw new Error('Draw your signature first, or it is too complex to keep. Try a simpler one.');
+    const saved: SavedSignature = { id: this.newId(), name: name.trim().replace(/\s+/g, ' ') || 'Drawn signature', art, color, createdAt: new Date().toISOString() };
     await this.saveSignatures([...this.ui.signatures, saved]);
     return saved;
   }

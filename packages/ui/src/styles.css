@@ -120,7 +120,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .toolbar select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
 
 /* Signatures dialog */
-.modal:has(.sig-list, .sig-styles) { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
+.modal:has(.sig-list, .sig-styles, .draw-pad) { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
 .modal h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
 .sig-note { margin: 0 0 4px; font-size: 13px; }
 .sig-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -175,3 +175,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   .sidebar { width: auto; height: 120px; border-right: none; border-bottom: 1px solid var(--border); overflow: auto hidden; }
   .page-grid { flex-direction: row; padding: 8px; }
 }
+
+.sig-methods { display: flex; gap: 6px; margin-bottom: 8px; }
+.sig-methods button[aria-checked='true'] { background: var(--surface); color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.draw-pad { position: relative; margin: 10px 0 6px; }
+.draw-surface { display: block; width: 100%; aspect-ratio: 560 / 180; background: #fff; border: 1px solid var(--border); border-radius: 8px; touch-action: none; cursor: crosshair; user-select: none; }
+.draw-baseline { stroke: #c8ccd4; stroke-width: 1; stroke-dasharray: 4 4; }
+.draw-hint { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: #9aa0ab; pointer-events: none; font-size: 14px; }
+.draw-tools { display: flex; gap: 6px; margin-bottom: 8px; }

@@ -12,3 +12,4 @@ export * from './selection-rects';
 export * from './imported';
 export * from './stamp';
 export * from './signature-art';
+export * from './drawn-signature';

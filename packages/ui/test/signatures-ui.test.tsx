@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SIGNATURE_WIDTH, type Annotation, type SignatureArt, type StampAnnot } from '@pagewright/core';
-import type { SignatureMaker } from '../src';
+import { SIGNATURE_INKS, type SignatureMaker } from '../src';
+
+const SIGNATURE_BLUE = SIGNATURE_INKS[1]!.color;
 import { setup } from './helpers';
 
 /** Fake pages are 200 x 300 pt, shown at 96/72 px per point. */
@@ -267,5 +269,98 @@ describe('saved signatures', () => {
     await makeOne(t);
     t.press(100, 150);
     expect(await screen.findByText(/not a digital signature and does not prove who signed/)).toBeTruthy();
+  });
+});
+
+describe('drawing a signature', () => {
+  /** jsdom has no layout: show the pad as 560 x 180 so client coordinates are pad units. */
+  const pad = (t: Awaited<ReturnType<typeof ready>>) => {
+    fireEvent.click(within(t.dialog()).getByRole('radio', { name: 'Draw' }));
+    const el = within(t.dialog()).getByRole('img', { name: 'Signature pad' }) as unknown as SVGSVGElement;
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, right: 560, bottom: 180, width: 560, height: 180, x: 0, y: 0 }) as DOMRect;
+    return el;
+  };
+  const ev = (type: string, x: number, y: number) => Object.assign(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }), { pointerId: 1 });
+  const stroke = (el: Element, pts: [number, number][]) => {
+    act(() => {
+      el.dispatchEvent(ev('pointerdown', ...pts[0]!));
+      for (const p of pts.slice(1)) el.dispatchEvent(ev('pointermove', ...p));
+      el.dispatchEvent(ev('pointerup', ...pts.at(-1)!));
+    });
+  };
+
+  it('cannot be saved until something is drawn, and the name is optional', async () => {
+    const t = await ready();
+    fireEvent.keyDown(window, { key: 'g' });
+    const el = pad(t);
+    expect(t.saveButton().disabled).toBe(true);
+    stroke(el, [[20, 100], [100, 40], [200, 120]]);
+    expect(t.saveButton().disabled).toBe(false);
+  });
+
+  it('keeps a stroke even when the pen is released in the same moment as the last move', async () => {
+    const t = await ready();
+    fireEvent.keyDown(window, { key: 'g' });
+    const el = pad(t);
+    stroke(el, [[20, 100], [100, 40], [300, 120]]); // all events inside a single act: React has not redrawn
+    fireEvent.click(t.saveButton());
+    await waitFor(() => expect(t.store.getSnapshot().ui.signatures).toHaveLength(1));
+    const art = t.store.getSnapshot().ui.signatures[0]!.art;
+    expect(art.mode).toBe('stroke');
+    expect(art.w).toBeGreaterThan(270); // the whole stretch, up to x = 300
+  });
+
+  it('undoes the last stroke only, and clears all', async () => {
+    const t = await ready();
+    fireEvent.keyDown(window, { key: 'g' });
+    const el = pad(t);
+    const drawn = () => el.querySelectorAll('path').length;
+    stroke(el, [[20, 100], [100, 40], [200, 120]]);
+    stroke(el, [[220, 100], [300, 40], [400, 120]]);
+    expect(drawn()).toBe(2);
+    fireEvent.click(within(t.dialog()).getByRole('button', { name: 'Undo stroke' }));
+    expect(drawn()).toBe(1);
+    expect(t.saveButton().disabled).toBe(false);
+    stroke(el, [[220, 100], [300, 40], [400, 120]]);
+    fireEvent.click(within(t.dialog()).getByRole('button', { name: 'Clear' }));
+    expect(drawn()).toBe(0);
+    expect(t.saveButton().disabled).toBe(true);
+    expect((within(t.dialog()).getByRole('button', { name: 'Undo stroke' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('saves, closes and places the drawn signature on the page', async () => {
+    const t = await ready();
+    fireEvent.keyDown(window, { key: 'g' });
+    const el = pad(t);
+    stroke(el, [[20, 100], [100, 40], [300, 120]]);
+    fireEvent.change(within(t.dialog()).getByLabelText(/Name \(optional/), { target: { value: 'My mark' } });
+    fireEvent.click(within(t.dialog()).getByRole('radio', { name: 'Blue' }));
+    fireEvent.click(t.saveButton());
+    await waitFor(() => expect(t.store.getSnapshot().ui.signatureDialog).toBe(false));
+    expect(t.store.getSnapshot().ui.signatures[0]).toMatchObject({ name: 'My mark', color: SIGNATURE_BLUE });
+    t.press(100, 150);
+    expect(t.stamps()).toHaveLength(1);
+    expect(t.stamps()[0]!.payload).toMatchObject({ kind: 'signature', art: { mode: 'stroke' } });
+  });
+
+  it('lists a drawn signature among the saved ones as a picture', async () => {
+    const t = await ready();
+    fireEvent.keyDown(window, { key: 'g' });
+    const el = pad(t);
+    stroke(el, [[20, 100], [100, 40], [300, 120]]);
+    fireEvent.click(t.saveButton());
+    await waitFor(() => expect(t.store.getSnapshot().ui.signatures).toHaveLength(1));
+    await waitFor(() => expect(t.store.getSnapshot().ui.signatureDialog).toBe(false));
+    act(() => t.store.openSignatures());
+    expect(within(t.dialog()).getByRole('img', { name: 'Signature of Drawn signature' })).toBeTruthy();
+  });
+
+  it('works in an app that cannot type signatures', async () => {
+    const t = await ready(null);
+    act(() => t.store.openSignatures());
+    expect(within(t.dialog()).getByText('Typed signatures are not available here.')).toBeTruthy();
+    const el = pad(t);
+    stroke(el, [[20, 100], [100, 40], [300, 120]]);
+    expect(t.saveButton().disabled).toBe(false);
   });
 });

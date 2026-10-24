@@ -249,3 +249,42 @@ describe('choosing and placing a signature', () => {
     expect(stamps()[0]!.comment?.text).toBe('Signed on behalf of the board');
   });
 });
+
+describe('creating a drawn signature', () => {
+  const stroke = [{ x: 10, y: 10 }, { x: 40, y: 30 }, { x: 80, y: 12 }];
+
+  it('keeps the pen strokes as stroke-mode artwork, under the given name', async () => {
+    const { store, sigs, writes } = await ready({ maker: null }); // drawing needs no fonts
+    const s = await store.createDrawnSignature('  My   mark ', [stroke], BLUE);
+    expect(s).toMatchObject({ name: 'My mark', color: BLUE });
+    expect(s.art.mode).toBe('stroke');
+    expect(sigs().map((x) => x.id)).toEqual([s.id]);
+    expect(writes.at(-1)).toEqual([JSON.parse(JSON.stringify(s))]);
+  });
+
+  it('gives an unnamed one a name', async () => {
+    const { store } = await ready();
+    expect((await store.createDrawnSignature('  ', [stroke], BLACK)).name).toBe('Drawn signature');
+  });
+
+  it('keeps nothing and says why when nothing was drawn', async () => {
+    const { store, sigs, writes } = await ready();
+    await expect(store.createDrawnSignature('x', [], BLACK)).rejects.toThrow(/Draw your signature/);
+    expect(sigs()).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it('stops at the limit', async () => {
+    const { store, sigs } = await ready({ stored: Array.from({ length: MAX_SAVED_SIGNATURES }, (_, i) => saved(`s${i}`)) });
+    await vi.waitFor(() => expect(sigs()).toHaveLength(MAX_SAVED_SIGNATURES));
+    await expect(store.createDrawnSignature('x', [stroke], BLACK)).rejects.toThrow(/up to/);
+  });
+
+  it('can be placed on the page like any other', async () => {
+    const { store, pageId, stamps } = await ready();
+    const s = await store.createDrawnSignature('x', [stroke], BLACK);
+    store.useSignature(s.id);
+    store.addSignature(pageId, { x: 100, y: 100 });
+    expect(stamps()[0]!.payload).toEqual({ kind: 'signature', art: s.art });
+  });
+});

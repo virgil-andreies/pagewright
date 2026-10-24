@@ -378,6 +378,70 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     void again;
   },
 
+  async drawnSignature(s) {
+    console.log('Drawn signature');
+    await openPdf(s.page, SAMPLE);
+    await s.page.keyboard.press('g');
+    await s.page.waitForSelector('dialog[aria-label="Signatures"]');
+    await s.page.evaluate(() => (document.querySelector('dialog [role=radiogroup][aria-label=Method] [role=radio]:last-child') as HTMLButtonElement).click());
+    await s.page.waitForSelector('dialog svg.draw-surface');
+    const box = (await (await s.page.$('dialog svg.draw-surface'))!.boundingBox())!;
+    const saveDisabled = () => s.page.$eval('dialog button[type=submit]', (b) => (b as HTMLButtonElement).disabled);
+    check('nothing can be saved before something is drawn', await saveDisabled());
+
+    // Two real strokes with the mouse: a wave, then a cross-bar.
+    const at = (fx: number, fy: number) => [box.x + box.width * fx, box.y + box.height * fy] as const;
+    await s.page.mouse.move(...at(0.1, 0.6));
+    await s.page.mouse.down();
+    for (let i = 0; i <= 40; i++) await s.page.mouse.move(...at(0.1 + i * 0.02, 0.5 + 0.25 * Math.sin(i / 3)));
+    await s.page.mouse.up();
+    await s.page.mouse.move(...at(0.15, 0.8));
+    await s.page.mouse.down();
+    await s.page.mouse.move(...at(0.8, 0.8), { steps: 10 });
+    await s.page.mouse.up();
+    const strokes = await s.page.$$eval('dialog svg.draw-surface path', (e) => e.length);
+    check('both strokes show on the pad', strokes === 2, `${strokes}`);
+    check('and the pad was not left selecting text or dragging', (await s.page.evaluate(() => (getSelection()?.toString() ?? '').length)) === 0);
+
+    await s.page.evaluate(() => (document.querySelector('dialog [aria-label=Ink] [aria-label=Blue]') as HTMLButtonElement).click());
+    await s.page.screenshot({ path: resolve(SHOTS, 'signature-draw.png') });
+    await clickButton(s.page, 'Undo stroke');
+    check('Undo stroke takes off the last stroke only', (await s.page.$$eval('dialog svg.draw-surface path', (e) => e.length)) === 1);
+    await s.page.mouse.move(...at(0.15, 0.8));
+    await s.page.mouse.down();
+    await s.page.mouse.move(...at(0.8, 0.8), { steps: 10 });
+    await s.page.mouse.up();
+    await clickButton(s.page, 'Save and use');
+    await s.page.waitForFunction(() => !document.querySelector('dialog[aria-label="Signatures"]'));
+
+    await clickOnPage(s.page, 360, 480);
+    await sleep(300);
+    const placed = await s.page.$eval(`${ANNOT} path`, (p) => ({ w: p.getBoundingClientRect().width, stroke: p.getAttribute('stroke'), fill: p.getAttribute('fill') }));
+    check('clicking the page places it, drawn as a blue pen line', placed.w > 100 && placed.fill === 'none' && /rgb\(\d+ \d+ 1\d\d\)/.test(placed.stroke ?? ''), JSON.stringify(placed));
+
+    await clickButton(s.page, 'Save');
+    const file = await waitForDownload();
+    const doc = await PDFDocument.load(readFileSync(file));
+    const annots = doc.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    const stamp = annots.asArray().map((_, i) => annots.lookup(i, PDFDict)).filter((d) => (d.lookup(PDFName.of('Name')) as PDFName | undefined)?.decodeText() === 'Signature').at(-1)!;
+    const rect = stamp.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Number(n.toString()));
+    const ap = stamp.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N')) as PDFRawStream;
+    const ops = Buffer.from(ap.contents).toString('latin1');
+    check('saved as a stroked pen line with round ends, no font', /\bS\b/.test(ops) && /1 J 1 j/.test(ops) && !ap.dict.lookup(PDFName.of('Resources'), PDFDict).lookup(PDFName.of('Font')));
+
+    await s.page.goto(s.url);
+    await openPdf(s.page, file);
+    const ink = await s.page.evaluate((r) => {
+      const c = document.querySelector('.page-view canvas') as HTMLCanvasElement;
+      const k = c.width / 612;
+      const d = c.getContext('2d')!.getImageData(Math.round(r[0]! * k), Math.round((792 - r[3]!) * k), Math.round((r[2]! - r[0]!) * k), Math.round((r[3]! - r[1]!) * k)).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 2]! > d[i]! + 60 && d[i + 2]! > d[i + 1]! + 60) n++;
+      return n;
+    }, rect);
+    check('opened again, PDF.js draws the pen line in blue where it belongs', ink > 100, `${ink} blue pixels`);
+  },
+
   async text(s) {
     console.log('Text tool');
     await openPdf(s.page, SAMPLE);
