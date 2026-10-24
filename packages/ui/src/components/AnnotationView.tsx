@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   BASELINE_RATIO, NOTE_ICON_LINE, artScale, artSvgPath, NOTE_INK, NOTE_SIZE, TEXT_PADDING, annotationBounds, arrowHead, effectiveRotation, freeTextHandles,
-  freeTextLines, lineAdvance, noteIcon, pdfToViewport, quadBounds, shapeHandles, stampHandles, stampLayout, stampPreset, stampScale, textWidth,
+  freeTextLines, freeTextUnicode, lineAdvance, noteIcon, pdfToViewport, quadBounds, shapeHandles, stampHandles, stampLayout, stampPreset, stampScale, textWidth,
   type Annotation, type FontFamily, type FreeTextAnnot, type SignatureArt, type StampAnnot, type NoteAnnot, type PageGeometry, type Point, type Quad, type RGBA, type ShapeAnnot,
 } from '@pagewright/core';
 
@@ -107,6 +107,24 @@ export const FONT_STACKS: Record<FontFamily, string> = {
 };
 
 /**
+ * The fonts a text box with letters from other alphabets is saved with (see core/unicode-text.ts). The app loads
+ * them as web fonts, so the editor shows the very glyphs the PDF will have.
+ */
+export const UNICODE_FONT_STACKS: Record<FontFamily, string> = {
+  sans: '"Noto Sans", sans-serif',
+  serif: '"Noto Serif", serif',
+  mono: '"Noto Sans Mono", monospace',
+};
+
+/**
+ * The CSS font for a text box. Ligatures and kerning are off because the layout (and the PDF) place each character
+ * by its own width.
+ */
+export function textBoxFont(family: FontFamily, unicode: boolean): { fontFamily: string; fontKerning: 'none'; fontVariantLigatures: 'none' } {
+  return { fontFamily: (unicode ? UNICODE_FONT_STACKS : FONT_STACKS)[family], fontKerning: 'none', fontVariantLigatures: 'none' };
+}
+
+/**
  * Free text uses the shared layout, so the lines break exactly where they will in the saved PDF. Each line
  * is stretched to its PDF width (`textLength`), so even if the browser substitutes a different font the
  * text occupies the same space as the saved page. The text turns with the page, like any PDF annotation
@@ -115,13 +133,15 @@ export const FONT_STACKS: Record<FontFamily, string> = {
 function FreeTextBody({ text, geometry, scale }: { text: FreeTextAnnot; geometry: PageGeometry; scale: number }) {
   const anchor = pdfToViewport(geometry, scale, { x: text.rect.x, y: text.rect.y + text.rect.h });
   const rotation = effectiveRotation(geometry);
+  const unicode = freeTextUnicode(text);
+  const { fontFamily, ...features } = textBoxFont(text.fontFamily, unicode);
   return (
     <g
       transform={`translate(${anchor.x} ${anchor.y}) rotate(${rotation}) scale(${scale})`}
       fill={rgb(text.color)}
-      fontFamily={FONT_STACKS[text.fontFamily]}
+      fontFamily={fontFamily}
       fontSize={text.fontSize}
-      style={{ whiteSpace: 'pre' }}
+      style={{ whiteSpace: 'pre', ...features }}
     >
       {freeTextLines(text).map((line, i) =>
         line === '' ? null : (
@@ -129,7 +149,7 @@ function FreeTextBody({ text, geometry, scale }: { text: FreeTextAnnot; geometry
             key={i}
             x={TEXT_PADDING}
             y={TEXT_PADDING + BASELINE_RATIO * text.fontSize + i * lineAdvance(text.fontSize)}
-            textLength={textWidth(text.fontFamily, line, text.fontSize)}
+            textLength={textWidth(text.fontFamily, line, text.fontSize, unicode)}
             lengthAdjust="spacing"
           >
             {line}

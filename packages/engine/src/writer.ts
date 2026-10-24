@@ -1,6 +1,7 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, degrees } from '@cantoo/pdf-lib';
 import { memorySource, normalizeRotation, preflight, readAll, type AppError, type SourceId, type WorkingDocument } from '@pagewright/core';
-import { DefaultAnnotationWriter, embedStampImages, type AnnotationWriter } from './annotation-writer';
+import type { UnicodeFontSource } from './unicode-fonts';
+import { DefaultAnnotationWriter, embedStampImages, embedUnicodeFonts, type AnnotationWriter } from './annotation-writer';
 import type { PdfWriter, Progress, SaveOpts } from './types';
 
 /** Thrown for any condition expressed as an AppError (see core/policies). */
@@ -13,6 +14,8 @@ export class AppFailure extends Error {
 export interface PdfLibWriterOptions {
   annotationWriter?: AnnotationWriter;
   memoryBudgetMB?: number;
+  /** Where to get the fonts for text boxes in other alphabets. Without it, saving such a box fails with a message. */
+  unicodeFonts?: UnicodeFontSource;
   /** Step 8 of the save pipeline: reopen the output and check page count. Defaults to a pdf-lib reload. */
   verify?: (bytes: Uint8Array, expectedPages: number) => Promise<boolean>;
 }
@@ -23,11 +26,13 @@ const defaultVerify = async (bytes: Uint8Array, expected: number) =>
 export class PdfLibWriter implements PdfWriter {
   private readonly annots: AnnotationWriter;
   private readonly memoryBudgetMB: number;
+  private readonly unicodeFonts: UnicodeFontSource | undefined;
   private readonly verify: NonNullable<PdfLibWriterOptions['verify']>;
 
   constructor(o: PdfLibWriterOptions = {}) {
     this.annots = o.annotationWriter ?? new DefaultAnnotationWriter();
     this.memoryBudgetMB = o.memoryBudgetMB ?? 1536;
+    this.unicodeFonts = o.unicodeFonts;
     this.verify = o.verify ?? defaultVerify;
   }
 
@@ -66,12 +71,14 @@ export class PdfLibWriter implements PdfWriter {
     }
 
     // 5. Annotations. Imported ones already live in the copied page dictionary.
-    const images = await embedStampImages(out, doc.pages.flatMap((p) => doc.annotations[p.id] ?? []));
+    const all = doc.pages.flatMap((p) => doc.annotations[p.id] ?? []);
+    const images = await embedStampImages(out, all);
+    const fonts = await embedUnicodeFonts(out, all, this.unicodeFonts);
     for (const [i, ref] of doc.pages.entries()) {
       const page = out.getPage(i);
       for (const annot of doc.annotations[ref.id] ?? []) {
         if (annot.origin === 'imported') continue;
-        this.annots.write({ pdf: out, page, images }, annot);
+        this.annots.write({ pdf: out, page, images, fonts }, annot);
       }
       onProgress?.({ phase: 'annotate', done: i + 1, total });
     }

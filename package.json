@@ -10,11 +10,12 @@
     "sample": "tsx packages/engine/scripts/sample.ts",
     "make-large": "tsx packages/engine/scripts/make-large.ts",
     "e2e": "tsx e2e/run.ts",
-    "gen-font-data": "tsx packages/engine/scripts/gen-font-data.ts",
+    "gen-font-data": "tsx packages/engine/scripts/gen-font-data.ts && tsx packages/engine/scripts/gen-unicode-font-data.ts",
     "bench-large": "tsx --expose-gc packages/engine/scripts/bench-large.ts"
   },
   "devDependencies": {
     "@cantoo/pdf-lib": "^2.11.1",
+    "pdfjs-dist": "^6.4.299",
     "puppeteer-core": "^25.15.0",
     "tsx": "^4.23.15",
     "typescript": "^5.6.0",

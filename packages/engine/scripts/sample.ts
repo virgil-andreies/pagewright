@@ -7,7 +7,7 @@ import {
   History, fitFreeText, newSignatureRect, newStampRect, stampPreset, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
   type Annotation, type PageId, type Point, type Rect, type ShapeAnnot, type SourceDoc,
 } from '@pagewright/core';
-import { PdfLibWriter, defaultSaveOpts, typedSignatureArt } from '../src';
+import { PdfLibWriter, UNICODE_FAMILIES, defaultSaveOpts, typedSignatureArt, unicodeFontFile } from '../src';
 
 const SIZE = 18;
 
@@ -131,6 +131,10 @@ async function main() {
   h.execute(addAnnotation(text('ft-big', 'p5', 'sans', 24, 72, 40, 460, 'Large text', blue2)));
   h.execute(addAnnotation(text('ft-p3', 'p3', 'sans', 14, 72, 540, 300, 'Free text on a rotated page turns with the page.')));
   h.execute(addAnnotation(text('ft-p4', 'p4', 'serif', 14, 72, 540, 300, 'Free text on the offset-CropBox page.', blue2)));
+  // Other alphabets, on the rotated page: these boxes embed only the Noto letters they use.
+  h.execute(addAnnotation(text('ft-uni-sans', 'p2', 'sans', 12, 72, 460, 300, 'Noto Sans: Mulțumesc! Zażółć gęślą jaźń. Καλημέρα. Съешь же ещё этих булок. Tiếng Việt.', blue2)));
+  h.execute(addAnnotation(text('ft-uni-serif', 'p2', 'serif', 12, 72, 380, 300, 'Noto Serif: Dobrý den, Ελληνικά, Українська, Şcoală.', green2)));
+  h.execute(addAnnotation(text('ft-uni-mono', 'p2', 'mono', 10, 72, 320, 300, 'Noto Sans Mono: Ğğ İı Şş — Ђђ Љљ — Ωω', red2)));
 
   // Preset stamps: on the plain page, the rotated page and the offset-CropBox page.
   const stampAt = (id: string, pageId: string, name: string, cx: number, cy: number, width = 150): Annotation => {
@@ -156,7 +160,14 @@ async function main() {
   // Extra rotation on top of the source rotation: p2 -> 90, p3 -> 90 + 90.
   h.execute(rotatePages(['p2', 'p3'], 90));
 
-  const bytes = await new PdfLibWriter().save(h.current, defaultSaveOpts, (p) => {
+  // The Noto files for text in other alphabets, read from node_modules (the app fetches the same files).
+  const unicodeFonts = {
+    load: async (family: 'sans' | 'serif' | 'mono', subset: string) => {
+      const pkg = UNICODE_FAMILIES[family];
+      return new Uint8Array(readFileSync(fileURLToPath(new URL(`../node_modules/${pkg}/files/${unicodeFontFile(pkg, subset)}`, import.meta.url))));
+    },
+  };
+  const bytes = await new PdfLibWriter({ unicodeFonts }).save(h.current, defaultSaveOpts, (p) => {
     if (p.done === p.total) console.log(`${p.phase}: ${p.total} pages`);
   });
 

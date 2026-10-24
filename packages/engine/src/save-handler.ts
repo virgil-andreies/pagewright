@@ -1,4 +1,5 @@
 import type { SaveMessage, SaveRequest } from './save-protocol';
+import { urlFontSource } from './unicode-fonts';
 import { AppFailure, PdfLibWriter } from './writer';
 
 /**
@@ -10,7 +11,11 @@ export async function handleSaveRequest(
   post: (message: SaveMessage, transfer?: Transferable[]) => void,
 ): Promise<void> {
   try {
-    const writer = new PdfLibWriter({ memoryBudgetMB: req.memoryBudgetMB, verify: async () => true });
+    const writer = new PdfLibWriter({
+      memoryBudgetMB: req.memoryBudgetMB,
+      verify: async () => true,
+      unicodeFonts: req.unicodeFontUrls ? urlFontSource(req.unicodeFontUrls) : undefined,
+    });
     const bytes = await writer.save(req.doc, req.opts, (progress) => post({ type: 'progress', id: req.id, progress }));
     post({ type: 'done', id: req.id, bytes }, [bytes.buffer]);
   } catch (e) {

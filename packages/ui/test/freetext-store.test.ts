@@ -86,12 +86,19 @@ describe('creating text', () => {
 describe('characters the built-in fonts cannot show', () => {
   it('are replaced by ? in what is stored, with a one-time notice', async () => {
     const { store, p1, texts } = await ready();
-    typeBox(store, p1, 'Привет мир');
-    expect(texts()[0]!.text).toBe('?????? ???');
+    typeBox(store, p1, 'Hi 你好 😀');
+    expect(texts()[0]!.text).toBe('Hi ?? ?');
     const notices = store.getSnapshot().ui.notices.filter((n) => /replaced with/.test(n));
     expect(notices).toHaveLength(1);
     typeBox(store, p1, '日本語', { x: 40, y: 100 });
     expect(store.getSnapshot().ui.notices.filter((n) => /replaced with/.test(n))).toHaveLength(1); // once per session
+  });
+
+  it('keep other alphabets, with no notice', async () => {
+    const { store, p1, texts } = await ready();
+    typeBox(store, p1, 'Привет мир, Καλημέρα, Mulțumesc');
+    expect(texts()[0]!.text).toBe('Привет мир, Καλημέρα, Mulțumesc');
+    expect(store.getSnapshot().ui.notices.filter((n) => /replaced with/.test(n))).toHaveLength(0);
   });
 
   it('leave accented and typographic characters alone', async () => {

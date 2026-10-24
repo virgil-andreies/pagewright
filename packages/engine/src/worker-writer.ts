@@ -24,6 +24,11 @@ export interface WorkerPdfWriterOptions {
   memoryBudgetMB: number;
   /** Step 8 of the save pipeline, run on the main thread (e.g. `pdfjsVerify`). Defaults to accepting the output. */
   verify?: (bytes: Uint8Array, expectedPages: number) => Promise<boolean>;
+  /**
+   * Absolute URLs of the font files for text boxes in other alphabets, keyed `family/subset` (see unicode-fonts.ts).
+   * The worker fetches only the ones a document needs, when it needs them.
+   */
+  unicodeFontUrls?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -59,6 +64,7 @@ export class WorkerPdfWriter implements PdfWriter {
     }
     const request: SaveRequest = {
       type: 'save', id: this.nextId++, doc: { ...doc, sources }, opts, memoryBudgetMB: this.o.memoryBudgetMB,
+      ...(this.o.unicodeFontUrls ? { unicodeFontUrls: this.o.unicodeFontUrls } : {}),
     };
 
     const bytes = await this.run(request, transfer, onProgress, signal);

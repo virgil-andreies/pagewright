@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_TEXT_WIDTH, freeTextHeight, type Annotation, type FreeTextAnnot } from '@pagewright/core';
+import { DEFAULT_TEXT_WIDTH, freeTextHeight, textWidth, type Annotation, type FreeTextAnnot } from '@pagewright/core';
 import { setup } from './helpers';
 
 /** Fake pages are 200 x 300 pt, shown at 96/72 px per point. */
@@ -149,15 +149,15 @@ describe('typing a new text box', () => {
     expect(screen.queryByLabelText('Text')).toBeNull();
   });
 
-  it('warns while typing characters the built-in fonts cannot show, and stores ? for them', async () => {
+  it('warns while typing characters no text box font can show, and stores ? for them', async () => {
     const t = await ready();
     t.tool('Text');
     t.click(40, 200);
-    t.type('Привет');
-    expect(screen.getByText(/6 characters can’t be saved/)).toBeTruthy();
+    t.type('Привет 你好');
+    expect(screen.getByText(/2 characters can’t be shown/)).toBeTruthy();
     fireEvent.keyDown(t.box(), { key: 'Enter', ctrlKey: true });
-    expect(t.texts()[0]!.text).toBe('??????');
-    expect(screen.queryByText(/can’t be saved/)).toBeNull();
+    expect(t.texts()[0]!.text).toBe('Привет ??');
+    expect(screen.queryByText(/can’t be shown/)).toBeNull();
     expect(t.store.getSnapshot().ui.notices.some((n) => /replaced with/.test(n))).toBe(true);
   });
 
@@ -348,5 +348,43 @@ describe('comments panel', () => {
     fireEvent.keyDown(window, { key: 'c' });
     expect(t.store.getSnapshot().ui.selectedAnnot).toBeDefined();
     expect(screen.queryByRole('heading', { name: /Comment on this/ })).toBeNull();
+  });
+});
+
+describe('text in other alphabets', () => {
+  it('switches the box to the embedded font as soon as such a letter is typed, as the saved file will', async () => {
+    const t = await ready();
+    t.tool('Text');
+    t.click(40, 200);
+    t.type('Hello');
+    expect(t.box().style.fontFamily).toMatch(/Helvetica/);
+    t.type('Hello Łódź');
+    expect(t.box().style.fontFamily).toMatch(/Noto Sans/);
+    expect(t.box().style.fontKerning).toBe('none');
+  });
+
+  it('draws the finished box in that font, each line stretched to the width the PDF will have', async () => {
+    const t = await ready();
+    t.addText(20, 250, 'Привет');
+    const g = await waitFor(() => {
+      const el = document.querySelector('svg.overlay g.annot g[font-family]');
+      if (!el) throw new Error('not drawn');
+      return el;
+    });
+    expect(g.getAttribute('font-family')).toMatch(/Noto Sans/);
+    const line = g.querySelector('text')!;
+    expect(Number(line.getAttribute('textLength'))).toBeCloseTo(textWidth('sans', 'Привет', 12, true), 6);
+    expect(Number(line.getAttribute('textLength'))).not.toBeCloseTo(textWidth('sans', 'Привет', 12, false), 1);
+  });
+
+  it('keeps Western European text in the standard font', async () => {
+    const t = await ready();
+    t.addText(20, 250, 'Crème brûlée');
+    const g = await waitFor(() => {
+      const el = document.querySelector('svg.overlay g.annot g[font-family]');
+      if (!el) throw new Error('not drawn');
+      return el;
+    });
+    expect(g.getAttribute('font-family')).toMatch(/Helvetica/);
   });
 });

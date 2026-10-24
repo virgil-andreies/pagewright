@@ -14,7 +14,7 @@ A PDF app for organising pages and marking up documents. It runs in the browser 
 **Marking up**
 - Select and copy the document's own text
 - Highlight, underline and strike out exactly the text you select
-- Pen, rectangle, ellipse, line and arrow; text boxes (Helvetica, Times or Courier)
+- Pen, rectangle, ellipse, line and arrow; text boxes in sans, serif or mono, in Western and Central European languages, Cyrillic, Greek and Vietnamese (a box in another alphabet embeds only the letters it uses)
 - Preset stamps (Approved, Draft, Confidential and more), movable and resizable
 - Typed visual signatures in four handwriting styles, or drawn by hand with a mouse, finger or pen, kept on your device and saved as vector shapes so they look the same in every viewer (they are pictures of a name, not digital signatures)
 - Image stamps from PNG or JPEG pictures (a logo, a scanned signature): turned upright, scaled down to a sensible size, and transparency kept
@@ -72,17 +72,16 @@ The design, the data model and the decisions behind them are in [docs/MODULE_SPE
 
 ## Known limits
 
-- **Text uses the standard PDF fonts**, so Western European text is fine, but Cyrillic, Greek, CJK and right-to-left text typed into a text box is replaced by `?`. Embedding a Unicode font is planned.
+- **Text boxes cannot show Chinese, Japanese, Korean, Arabic, Hebrew, Indic scripts or emoji**: those are replaced by `?`, with a warning while you type.
 - **Saving needs about 4.5 times the size of the source files in memory.** Larger documents can still be opened, viewed and marked up, but saving is refused with an explanation, rather than risking a crashed tab. Phones allow roughly 200 to 270 MB of source files.
 - **Encrypted PDFs** can be viewed but not saved. **Digitally signed PDFs** can be edited, but saving invalidates their signatures (you are asked first).
 - Scanned pages have no text to select.
 
 ## Roadmap
 
-- Unicode text in text boxes
 - Electron shell (desktop) and Capacitor shell (mobile)
 - Checking the saved annotations in more viewers
 
 ## Acknowledgements
 
-Built on [PDF.js](https://mozilla.github.io/pdf.js/) for rendering and [pdf-lib](https://pdf-lib.js.org/) (the maintained [@cantoo fork](https://github.com/cantoo-scribe/pdf-lib)) for writing. Typed signatures use [fontkit](https://github.com/Hopding/fontkit) and the handwriting fonts Great Vibes, Dancing Script, Caveat and Sacramento (SIL Open Font License) from [Fontsource](https://fontsource.org).
+Built on [PDF.js](https://mozilla.github.io/pdf.js/) for rendering and [pdf-lib](https://pdf-lib.js.org/) (the maintained [@cantoo fork](https://github.com/cantoo-scribe/pdf-lib)) for writing. Typed signatures and text in other alphabets use [fontkit](https://github.com/foliojs/fontkit) (the [@cantoo fork](https://www.npmjs.com/package/@cantoo/fontkit)), the handwriting fonts Great Vibes, Dancing Script, Caveat and Sacramento, and Noto Sans, Noto Serif and Noto Sans Mono (all SIL Open Font License) from [Fontsource](https://fontsource.org).

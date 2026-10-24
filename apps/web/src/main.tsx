@@ -7,6 +7,7 @@ import SaveWorker from '@pagewright/engine/src/save.worker.ts?worker';
 import { createWebPlatform } from '@pagewright/platform';
 import { AppShell, AppStore, browserImageLoader } from '@pagewright/ui';
 import { signatureFonts } from './signature-fonts';
+import { unicodeFontUrls } from './text-fonts';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -21,6 +22,7 @@ const writer = new WorkerPdfWriter({
   createWorker: () => new SaveWorker() as unknown as WorkerLike,
   memoryBudgetMB: platform.device.memoryBudgetMB,
   verify: pdfjsVerify(renderer),
+  unicodeFontUrls,
 });
 // Typed signatures are drawn once, from handwriting fonts, into vector artwork; see signature-fonts.ts.
 const store = new AppStore({ renderer, writer, platform, signatureMaker: createSignatureMaker(signatureFonts), imageLoader: browserImageLoader });

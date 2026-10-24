@@ -5,7 +5,7 @@ import {
   PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFString, StandardFonts,
 } from '@cantoo/pdf-lib';
 import {
-  BASELINE_RATIO, History, TEXT_PADDING, addAnnotation, addSource, emptyDocument, fitFreeText, freeTextLines, isSupported,
+  BASELINE_RATIO, History, TEXT_PADDING, addAnnotation, addSource, emptyDocument, fitFreeText, freeTextLines, isStandard,
   lineAdvance, memorySource, textWidth, toWinAnsi,
   type Annotation, type FontFamily, type FreeTextAnnot,
 } from '@pagewright/core';
@@ -23,9 +23,9 @@ describe('core font data agrees with pdf-lib', () => {
     // Every code point in the BMP plus the first astral plane block people actually type (emoji).
     for (let cp = 32; cp < 0x10000; cp++) {
       if (cp >= 0xd800 && cp <= 0xdfff) continue;
-      expect(isSupported(String.fromCodePoint(cp)), `U+${cp.toString(16)}`).toBe(theirs.has(cp));
+      expect(isStandard(String.fromCodePoint(cp)), `U+${cp.toString(16)}`).toBe(theirs.has(cp));
     }
-    expect(isSupported('😀')).toBe(false);
+    expect(isStandard('😀')).toBe(false);
     for (const cp of theirs) {
       const ch = String.fromCodePoint(cp);
       expect(textWidth(family, ch, 1000), ch).toBeCloseTo(font.widthOfTextAtSize(ch, 1000), 2);
@@ -115,8 +115,8 @@ describe('buildFreeTextAppearance', () => {
     expect(ys[0]! - ys[1]!).toBeCloseTo(2 * lineAdvance(12), 2);
   });
 
-  it('writes unsupported characters as ?', () => {
-    const a = freeText('Ω'); // not representable: should already have been sanitised, but stay safe
+  it('writes characters no font has as ?', () => {
+    const a = freeText('日'); // not representable: should already have been sanitised, but stay safe
     expect(buildFreeTextAppearance(a).content).toContain('<3F> Tj');
   });
 

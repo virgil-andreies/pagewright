@@ -1,8 +1,11 @@
-import { annotationBounds, NOTE_SIZE, type Annotation, type FontFamily, type FreeTextAnnot, type InkAnnot, type NoteAnnot, type RGBA, type ShapeAnnot, type StampAnnot, stampPreset } from '@pagewright/core';
+import { UNICODE_SUBSETS, freeTextLines, freeTextUnicode, unicodeRuns, annotationBounds, NOTE_SIZE, type Annotation, type FontFamily, type FreeTextAnnot, type InkAnnot, type NoteAnnot, type RGBA, type ShapeAnnot, type StampAnnot, stampPreset } from '@pagewright/core';
 import {
   PDFArray, PDFBool, PDFDict, PDFHexString, PDFName, PDFString,
-  type PDFDocument, type PDFPage, type PDFRef,
+  type PDFDocument, type PDFFont, type PDFPage, type PDFRef,
 } from '@cantoo/pdf-lib';
+import { UNICODE_FAMILIES, type UnicodeFontSource } from './unicode-fonts';
+import fontkit from '@cantoo/fontkit';
+import { woffToSfnt } from './woff';
 import { buildFreeTextAppearance, buildInkAppearance, buildNoteAppearance, buildShapeAppearance, buildImageStampAppearance, buildSignatureAppearance, buildStampAppearance, buildTextMarkupAppearance, type AppearanceStream } from './appearance';
 
 export interface WriteContext {
@@ -13,6 +16,8 @@ export interface WriteContext {
    * payload's bytes, so a stamp that was duplicated shares one image object in the file. See `embedStampImages`.
    */
   images?: ReadonlyMap<Uint8Array, PDFRef>;
+  /** Embedded fonts for text in other alphabets, keyed `family/subset index`. See `embedUnicodeFonts`. */
+  fonts?: ReadonlyMap<string, PDFFont>;
 }
 
 export class UnsupportedAnnotation extends Error {
@@ -82,6 +87,39 @@ export async function embedStampImages(pdf: PDFDocument, annots: Iterable<Annota
   return refs;
 }
 
+/**
+ * Turning off what would make the font draw other glyphs than the characters one by one (ligatures, contextual
+ * forms, composed accents): the layout counts each character's own width, and the editor draws them the same way.
+ */
+const PLAIN_GLYPHS = { liga: false, clig: false, calt: false, rlig: false, dlig: false, ccmp: false, locl: false, kern: false };
+
+const fontKey = (family: string, subset: number) => `${family}/${subset}`;
+
+/**
+ * Embeds the fonts that text boxes in other alphabets need: for each family, only the files (subsets) whose
+ * letters are used, and of those only the glyphs used (pdf-lib subsets the font when the file is saved).
+ * Call before writing the annotations, and pass the result as `WriteContext.fonts`.
+ */
+export async function embedUnicodeFonts(pdf: PDFDocument, annots: Iterable<Annotation>, source: UnicodeFontSource | undefined): Promise<Map<string, PDFFont>> {
+  const needed = new Map<string, { family: FreeTextAnnot['fontFamily']; subset: number }>();
+  for (const a of annots) {
+    if (a.type !== 'freetext' || a.origin === 'imported' || !freeTextUnicode(a)) continue;
+    for (const line of freeTextLines(a)) for (const r of unicodeRuns(a.fontFamily, line)) needed.set(fontKey(a.fontFamily, r.subset), { family: a.fontFamily, subset: r.subset });
+  }
+  const fonts = new Map<string, PDFFont>();
+  if (needed.size === 0) return fonts;
+  if (!source) throw new Error('Text boxes in other alphabets cannot be saved here, because the fonts they need are not available.');
+  pdf.registerFontkit(fontkit);
+  for (const [key, { family, subset }] of needed) {
+    const bytes = await woffToSfnt(await source.load(family, UNICODE_SUBSETS[subset]!));
+    // A subset font's name starts with a six-letter tag and '+' (PDF 32000 9.6.4), unique per subset in the file.
+    const tag = `PW${String.fromCharCode(65 + ['sans', 'serif', 'mono'].indexOf(family))}${String.fromCharCode(65 + subset)}AA`;
+    const name = `${tag}+${UNICODE_FAMILIES[family].replace('@fontsource/', '').replace(/(^|-)(\w)/g, (_m, _d, c: string) => c.toUpperCase())}`;
+    fonts.set(key, await pdf.embedFont(bytes, { subset: true, features: PLAIN_GLYPHS, customName: name }));
+  }
+  return fonts;
+}
+
 function registerAppearance(ctx: WriteContext, ap: AppearanceStream, image?: PDFRef): PDFRef {
   const { context } = ctx.pdf;
   const gs = context.obj({
@@ -99,6 +137,9 @@ function registerAppearance(ctx: WriteContext, ap: AppearanceStream, image?: PDF
       ExtGState: context.obj({ GS: gs }),
       ...(ap.font ? { Font: context.obj({ F1: standardFont(ctx.pdf, ap.font) }) } : {}),
       ...(image ? { XObject: context.obj({ Im1: image }) } : {}),
+      ...(ap.unicodeFonts
+        ? { Font: context.obj(Object.fromEntries(ap.unicodeFonts.subsets.map((s) => [`U${s}`, ctx.fonts!.get(fontKey(ap.unicodeFonts!.family, s))!.ref]))) }
+        : {}),
     }),
   });
   return context.register(stream);
@@ -191,7 +232,12 @@ export class DefaultAnnotationWriter implements AnnotationWriter {
   }
 
   private writeFreeText(ctx: WriteContext, annot: FreeTextAnnot): PDFRef {
-    const ap = buildFreeTextAppearance(annot);
+    const fonts = ctx.fonts;
+    const ap = buildFreeTextAppearance(annot, (family, subset, text) => {
+      const font = fonts?.get(fontKey(family, subset));
+      if (!font) throw new UnsupportedAnnotation('freetext (font not embedded)');
+      return font.encodeText(text).toString();
+    });
     const { context } = ctx.pdf;
     const dict = this.commonEntries(ctx, annot, 'FreeText', ap.bbox);
     // For FreeText, /C is the box background, not the text colour: leave it out so viewers draw no fill.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  LINE_HEIGHT, TEXT_PADDING, fitFreeText, freeTextHandles, freeTextHeight, freeTextLines, isSupported, layoutText,
+  LINE_HEIGHT, TEXT_PADDING, fitFreeText, freeTextHandles, freeTextHeight, freeTextLines, isStandard, isSupported, layoutText,
   minTextWidth, resizeFreeText, sanitizeText, textWidth, toWinAnsi, winAnsiByte, type FreeTextAnnot,
 } from '../src';
 
@@ -24,8 +24,13 @@ describe('font metrics', () => {
   });
 
   it('knows which characters the standard fonts can show', () => {
-    for (const ch of ['a', 'Z', '0', ' ', 'é', 'ñ', 'ü', '€', '“', '”', '—', '£']) expect(isSupported(ch), ch).toBe(true);
-    for (const ch of ['Ω', 'я', '日', '😀', '→', 'ا']) expect(isSupported(ch), ch).toBe(false);
+    for (const ch of ['a', 'Z', '0', ' ', 'é', 'ñ', 'ü', '€', '“', '”', '—', '£']) expect(isStandard(ch), ch).toBe(true);
+    for (const ch of ['Ω', 'я', 'ă', 'ł', '日', '😀', 'ا']) expect(isStandard(ch), ch).toBe(false);
+  });
+
+  it('knows which characters a text box can show at all: the standard fonts, or the embedded ones', () => {
+    for (const ch of ['a', '€', 'ă', 'ș', 'ț', 'ł', 'ő', 'ř', 'ğ', 'Ω', 'λ', 'я', 'Ж', 'ї', 'ệ', 'ơ', '₴']) expect(isSupported(ch), ch).toBe(true);
+    for (const ch of ['日', '한', '😀', 'ا', 'ש', 'क', '\u0306']) expect(isSupported(ch), ch).toBe(false);
   });
 
   it('maps characters to WinAnsi bytes', () => {
@@ -50,8 +55,13 @@ describe('sanitizeText', () => {
     expect(sanitizeText('a\r\nb\rc\td').text).toBe('a\nb\nc    d');
   });
 
-  it('replaces what cannot be shown and counts it, one per character even for emoji', () => {
-    expect(sanitizeText('Привет 😀 ok')).toEqual({ text: '?????? ? ok', replaced: 7 });
+  it('keeps other alphabets, and replaces what cannot be shown, one per character even for emoji', () => {
+    expect(sanitizeText('Привет 😀 ok')).toEqual({ text: 'Привет ? ok', replaced: 1 });
+    expect(sanitizeText('日本 שלום')).toEqual({ text: '?? ????', replaced: 6 });
+  });
+
+  it('joins accents typed separately to their letters, so they can be shown', () => {
+    expect(sanitizeText('Ba\u0306ies\u0326 Ta\u0306')).toEqual({ text: 'Băieș Tă', replaced: 0 });
   });
 
   it('drops control characters silently', () => {

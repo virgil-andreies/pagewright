@@ -1,11 +1,13 @@
 import type { FreeTextAnnot, Point } from './annotations';
 import { WIDTHS, WIN_ANSI } from './font-data';
+import { hasUnicodeGlyph, unicodeWidth, usesUnicodeFont } from './unicode-text';
 
 /**
  * Text layout for free-text annotations, shared by the editor and the PDF writer so line breaks are
- * identical in both. It uses the real advance widths of the standard PDF fonts (Helvetica, Times, Courier),
- * which every viewer has and which need no embedding. They cover Western European text (WinAnsi); other
- * scripts are not representable and are replaced by `?` (see `sanitizeText`).
+ * identical in both. It uses the real advance widths of the fonts the text is saved with: the standard PDF
+ * fonts (Helvetica, Times, Courier) for Western European text (WinAnsi), which every viewer has and which need no
+ * embedding, or the embedded Noto fonts for a box with letters from other alphabets (see unicode-text.ts).
+ * Characters neither can show are replaced by `?` (see `sanitizeText`).
  */
 export type FontFamily = FreeTextAnnot['fontFamily'];
 
@@ -27,19 +29,26 @@ export function winAnsiByte(ch: string): number | undefined {
   return byCodePoint.get(ch.codePointAt(0)!);
 }
 
-export function isSupported(ch: string): boolean {
+/** Whether the standard fonts can show the character, with no font embedded. */
+export function isStandard(ch: string): boolean {
   return byCodePoint.has(ch.codePointAt(0)!);
 }
 
+/** Whether a text box can show the character, with the standard fonts or the embedded ones. */
+export function isSupported(ch: string): boolean {
+  return isStandard(ch) || hasUnicodeGlyph(ch);
+}
+
 /**
- * Normalises typed text for storage: line endings become `\n`, tabs become four spaces, other control
- * characters are dropped, and anything the standard fonts cannot show becomes `?`. What is stored is
- * exactly what will be drawn and saved. `replaced` counts the characters that were lost, so the UI can say so.
+ * Normalises typed text for storage: accents are combined with their letters (NFC, so "a" + combining breve is
+ * the one letter "ă"), line endings become `\n`, tabs become four spaces, other control characters are dropped,
+ * and anything no text box font can show becomes `?`. What is stored is exactly what will be drawn and saved.
+ * `replaced` counts the characters that were lost, so the UI can say so.
  */
 export function sanitizeText(input: string): { text: string; replaced: number } {
   let replaced = 0;
   let out = '';
-  for (const ch of input.replace(/\r\n?/g, '\n').replace(/\t/g, '    ')) {
+  for (const ch of input.normalize('NFC').replace(/\r\n?/g, '\n').replace(/\t/g, '    ')) {
     if (ch === '\n' || isSupported(ch)) out += ch;
     else if (ch.codePointAt(0)! < 32 || ch === '\u007f') continue; // control characters
     else (out += FALLBACK), replaced++;
@@ -47,11 +56,18 @@ export function sanitizeText(input: string): { text: string; replaced: number } 
   return { text: out, replaced };
 }
 
-/** Width of a single line in points. Characters outside WinAnsi count as `?`, as they will be drawn. */
-export function textWidth(family: FontFamily, text: string, size: number): number {
-  const table = WIDTHS[family] as Record<number, number>;
+/**
+ * Width of a single line in points, in the standard font or (`unicode`) the embedded one. Characters the font
+ * cannot show count as `?`, as they will be drawn.
+ */
+export function textWidth(family: FontFamily, text: string, size: number, unicode = false): number {
   let units = 0;
-  for (const ch of text) units += table[winAnsiByte(ch) ?? winAnsiByte(FALLBACK)!]!;
+  if (unicode) {
+    for (const ch of text) units += unicodeWidth(family, ch) ?? unicodeWidth(family, FALLBACK)!;
+  } else {
+    const table = WIDTHS[family] as Record<number, number>;
+    for (const ch of text) units += table[winAnsiByte(ch) ?? winAnsiByte(FALLBACK)!]!;
+  }
   return (units * size) / 1000;
 }
 
@@ -64,8 +80,8 @@ export function toWinAnsi(text: string): Uint8Array {
  * Greedy word wrap into lines no wider than `maxWidth`. Explicit newlines are kept, runs of spaces are kept
  * inside a line and dropped at a wrap, and a word longer than a line is broken between characters.
  */
-export function layoutText(text: string, family: FontFamily, size: number, maxWidth: number): string[] {
-  const fits = (s: string) => textWidth(family, s, size) <= maxWidth;
+export function layoutText(text: string, family: FontFamily, size: number, maxWidth: number, unicode = false): string[] {
+  const fits = (s: string) => textWidth(family, s, size, unicode) <= maxWidth;
   const lines: string[] = [];
 
   for (const paragraph of text.split('\n')) {
@@ -104,9 +120,14 @@ export function lineAdvance(fontSize: number): number {
   return fontSize * LINE_HEIGHT;
 }
 
+/** Whether a free-text box is drawn and saved with the embedded Noto fonts rather than the standard ones. */
+export function freeTextUnicode(a: Pick<FreeTextAnnot, 'text'>): boolean {
+  return usesUnicodeFont(a, isStandard);
+}
+
 /** The lines of a free-text annotation, wrapped to its current width. */
 export function freeTextLines(a: FreeTextAnnot): string[] {
-  return layoutText(a.text, a.fontFamily, a.fontSize, Math.max(0, a.rect.w - 2 * TEXT_PADDING));
+  return layoutText(a.text, a.fontFamily, a.fontSize, Math.max(0, a.rect.w - 2 * TEXT_PADDING), freeTextUnicode(a));
 }
 
 export function freeTextHeight(lineCount: number, fontSize: number): number {

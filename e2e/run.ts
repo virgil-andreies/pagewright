@@ -5,6 +5,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream } from '@cantoo/pdf-lib';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { textWidth } from '../packages/core/src';
 import {
   SHOTS, check, chooseTool, clearDownloads, clickButton, clickOnPage, count, doubleClickOnPage, dragOnPage, failureCount, openPdf, sleep, start, waitForDownload,
@@ -595,6 +596,79 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await s.page.keyboard.press('Escape');
     await sleep(100);
     check('Escape discards a new box', (await count(s.page, 'textarea.text-editor')) === 0 && !(await s.page.$$eval(`${ANNOT} text`, (e) => e.map((x) => x.textContent))).includes('discard me'));
+  },
+
+  async unicodeText(s) {
+    console.log('Text in other alphabets');
+    await openPdf(s.page, SAMPLE);
+    await chooseTool(s.page, 'Text');
+    await clickOnPage(s.page, 120, 470);
+    await sleep(200);
+    const boxFont = () => s.page.$eval('textarea.text-editor', (e) => (e as HTMLTextAreaElement).style.fontFamily);
+    await typeText(s, 'Hello ');
+    check('Western text starts in the standard font', /Helvetica/.test(await boxFont()), await boxFont());
+    await typeText(s, 'Mulțumesc, Łódź!');
+    check('typing a Romanian or Polish letter switches the box to Noto, as it will be saved', /Noto Sans/.test(await boxFont()), await boxFont());
+    await s.page.keyboard.press('Enter');
+    await typeText(s, 'Καλημέρα — Привет — Tiếng Việt');
+    await ctrl(s, 'Enter');
+    await sleep(300);
+    const lines = await s.page.$$eval(`${ANNOT} text`, (e) => e.map((x) => x.textContent ?? ''));
+    check('the text is on the page, every letter kept', lines.join('|').includes('Mulțumesc, Łódź!') && lines.join('|').includes('Привет') && !lines.join('').includes('?'), JSON.stringify(lines));
+
+    // The browser's own measure of the web font must agree with the layout, or the editor and the PDF would differ.
+    await s.page.evaluate(() => document.fonts.load('12px "Noto Sans"', 'Привет'));
+    const measured = await s.page.evaluate((ls) => {
+      const c = document.createElement('canvas').getContext('2d')!;
+      c.font = '100px "Noto Sans"';
+      (c as unknown as { fontKerning: string }).fontKerning = 'none';
+      return ls.map((l) => c.measureText(l).width / 100);
+    }, lines);
+    const ours = lines.map((l) => textWidth('sans', l, 1, true));
+    const worst = Math.max(...measured.map((m, i) => Math.abs(m - ours[i]!) / ours[i]!));
+    check('the browser measures the web font exactly as the layout does', worst < 0.002, `${(worst * 100).toFixed(3)}% off`);
+    const glyphsLoaded = await s.page.evaluate(() => document.fonts.check('12px "Noto Sans"', 'Привет Καλημέρα ț'));
+    check('and the font for those alphabets has loaded', glyphsLoaded);
+    await s.page.screenshot({ path: resolve(SHOTS, 'unicode-text.png') });
+
+    await clickButton(s.page, 'Save');
+    const file = await waitForDownload();
+    const doc = await PDFDocument.load(readFileSync(file));
+    const annots = doc.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    const ft = annots.asArray().map((_, i) => annots.lookup(i, PDFDict)).filter((d) => (d.lookup(PDFName.of('Subtype')) as PDFName).decodeText() === 'FreeText').at(-1)!;
+    const ap = ft.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N')) as PDFRawStream;
+    const fonts = ap.dict.lookup(PDFName.of('Resources'), PDFDict).lookup(PDFName.of('Font'), PDFDict);
+    const names = fonts.keys().map((k) => k.decodeText());
+    const bases = names.map((n) => (fonts.lookup(PDFName.of(n), PDFDict).lookup(PDFName.of('BaseFont')) as PDFName).decodeText());
+    check('the saved box embeds only the Noto files its letters need', JSON.stringify(names.sort()) === JSON.stringify(['U0', 'U1', 'U2', 'U4', 'U6']), JSON.stringify(names));
+    check('as subset fonts', bases.every((b) => /^[A-Z]{6}\+NotoSans$/.test(b)), JSON.stringify(bases));
+    check('and the box text is kept as Unicode for other apps', (ft.lookup(PDFName.of('Contents')) as PDFHexString).decodeText().includes('Привет'));
+
+    // What a viewer draws: PDF.js reads the glyphs back as text through the embedded fonts' ToUnicode maps.
+    const task = pdfjs.getDocument({ data: new Uint8Array(readFileSync(file)) });
+    const pdf = await task.promise;
+    const ops = await (await pdf.getPage(1)).getOperatorList({ annotationMode: pdfjs.AnnotationMode.ENABLE });
+    let drawn = '';
+    ops.fnArray.forEach((fn, i) => {
+      if (fn === pdfjs.OPS.showText) drawn += (ops.argsArray[i][0] as ({ unicode: string } | number)[]).map((g) => (typeof g === 'number' ? '' : g.unicode)).join('');
+      if (fn === pdfjs.OPS.setTextMatrix) drawn += '|';
+    });
+    await task.destroy();
+    check('PDF.js reads the saved text back, letter for letter, line for line', drawn.includes(`|${lines.join('|')}`), drawn.slice(-160));
+
+    await s.page.goto(s.url);
+    await openPdf(s.page, file);
+    const rect = ft.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Number(n.toString()));
+    const ink = await s.page.evaluate((r) => {
+      const c = document.querySelector('.page-view canvas') as HTMLCanvasElement;
+      const k = c.width / 612;
+      const d = c.getContext('2d')!.getImageData(Math.round(r[0]! * k), Math.round((792 - r[3]!) * k), Math.round((r[2]! - r[0]!) * k), Math.round((r[3]! - r[1]!) * k)).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i]! + d[i + 1]! + d[i + 2]! < 600) n++; // any ink, whatever its colour
+      return n;
+    }, rect);
+    check('opened again, the page shows the text in its box', ink > 300, `${ink} inked pixels`);
+    await s.page.screenshot({ path: resolve(SHOTS, 'unicode-text-saved.png') });
   },
 
   async note(s) {

@@ -1,4 +1,4 @@
-import * as fontkitModule from '@pdf-lib/fontkit';
+import * as fontkitModule from '@cantoo/fontkit';
 import { quadToCubic, type PathCmd, type Point, type SignatureArt } from '@pagewright/core';
 
 // The package exposes `create` either at the top or under `default`, depending on the bundler and module format.
@@ -32,7 +32,8 @@ const round = (n: number) => Math.round(n * 100) / 100;
  * Returns undefined when nothing could be drawn.
  */
 export function typedSignatureArt(fontFiles: readonly Uint8Array[], text: string): TypedSignatureResult | undefined {
-  const fonts = fontFiles.map((bytes) => fk.create(bytes));
+  // (a font file, never a collection of fonts: those are .ttc files, which no style uses)
+  const fonts = fontFiles.map((bytes) => fk.create(bytes) as fontkitModule.Font);
   const clean = text.normalize('NFC').replace(/\s+/g, ' ').trim();
   if (fonts.length === 0 || clean === '') return undefined;
 
@@ -71,7 +72,7 @@ export function typedSignatureArt(fontFiles: readonly Uint8Array[], text: string
     const k = EM / font.unitsPerEm;
     const laid = font.layout(run.text);
     laid.glyphs.forEach((glyph, i) => {
-      const pos = laid.positions[i]!;
+      const pos = laid.positions?.[i] ?? { xOffset: 0, yOffset: 0, xAdvance: glyph.advanceWidth };
       const ox = pen + pos.xOffset * k;
       const oy = -pos.yOffset * k;
       const at = (x: number, y: number): Point => ({ x: ox + x * k, y: oy - y * k });

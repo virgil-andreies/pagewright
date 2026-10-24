@@ -9,3 +9,4 @@ export * from './typed-signature';
 export * from './save-protocol';
 export * from './save-handler';
 export * from './worker-writer';
+export * from './unicode-fonts';

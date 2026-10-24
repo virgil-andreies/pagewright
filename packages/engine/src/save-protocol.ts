@@ -8,6 +8,8 @@ export interface SaveRequest {
   doc: WorkingDocument;
   opts: SaveOpts;
   memoryBudgetMB: number;
+  /** Font files for text in other alphabets: `family/subset` -> absolute URL. */
+  unicodeFontUrls?: Record<string, string>;
 }
 
 /** Save worker -> main thread. */

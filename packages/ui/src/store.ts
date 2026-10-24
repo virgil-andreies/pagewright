@@ -532,7 +532,7 @@ export class AppStore {
     this.patch({ textEdit: undefined });
     const { text, replaced } = sanitizeText(edit.text);
     if (replaced > 0) {
-      this.notice('Some characters are not available in the built-in PDF fonts and were replaced with "?".');
+      this.notice('Some characters (such as Chinese, Arabic or emoji) cannot be shown in text boxes and were replaced with "?".');
     }
     const body = text.trim() === '' ? '' : text.replace(/\s+$/, '');
 

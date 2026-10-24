@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
 import {
-  LINE_HEIGHT, TEXT_PADDING, effectiveRotation, pdfToViewport, sanitizeText,
+  LINE_HEIGHT, TEXT_PADDING, effectiveRotation, pdfToViewport, sanitizeText, freeTextUnicode,
   type FreeTextAnnot, type PageGeometry,
 } from '@pagewright/core';
 import { useSnapshot, useUi } from '../react';
 import type { TextEdit } from '../store';
-import { FONT_STACKS, rgb } from './AnnotationView';
+import { rgb, textBoxFont } from './AnnotationView';
 
 /**
  * The text box while it is being typed in: a real <textarea> laid over the page at the box's position, in the
@@ -20,7 +20,10 @@ export function TextEditor({ edit, geometry, scale }: { edit: TextEdit; geometry
   const existing = edit.id ? doc.annotations[edit.pageId]?.find((a): a is FreeTextAnnot => a.id === edit.id && a.type === 'freetext') : undefined;
   const { fontSize, fontFamily, color } = existing ?? ui.drawStyle;
   const anchor = pdfToViewport(geometry, scale, edit.position);
-  const lost = sanitizeText(edit.text).replaced;
+  const clean = sanitizeText(edit.text);
+  const lost = clean.replaced;
+  // The box changes to the embedded fonts as soon as it has a letter the standard ones lack, as the saved one will.
+  const font = textBoxFont(fontFamily, freeTextUnicode(clean));
 
   useEffect(() => {
     const el = ref.current;
@@ -35,7 +38,7 @@ export function TextEditor({ edit, geometry, scale }: { edit: TextEdit; geometry
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
-  }, [edit.text, edit.width, scale, fontSize, fontFamily]);
+  }, [edit.text, edit.width, scale, fontSize, font.fontFamily]);
 
   return (
     <>
@@ -59,14 +62,14 @@ export function TextEditor({ edit, geometry, scale }: { edit: TextEdit; geometry
           padding: TEXT_PADDING * scale,
           fontSize: fontSize * scale,
           lineHeight: LINE_HEIGHT,
-          fontFamily: FONT_STACKS[fontFamily],
+          ...font,
           color: rgb(color),
           transform: `rotate(${effectiveRotation(geometry)}deg)`,
         }}
       />
       {lost > 0 && (
         <div className="text-editor-hint" role="status" style={{ left: anchor.x, top: anchor.y }}>
-          {lost} character{lost === 1 ? '' : 's'} can’t be saved in the built-in fonts and will show as “?”
+          {lost} character{lost === 1 ? '' : 's'} can’t be shown in a text box and will show as “?”
         </div>
       )}
     </>

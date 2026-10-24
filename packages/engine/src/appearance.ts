@@ -1,5 +1,5 @@
 import type { FontFamily, FreeTextAnnot, InkAnnot, NoteAnnot, Point, Quad, RGBA, ShapeAnnot, StampAnnot, TextMarkupAnnot } from '@pagewright/core';
-import { BASELINE_RATIO, NOTE_ICON_LINE, artScale, stampLayout, stampPreset, stampScale, TEXT_PADDING, freeTextLines, lineAdvance, toWinAnsi, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, quadBounds } from '@pagewright/core';
+import { freeTextUnicode, unicodeRuns, BASELINE_RATIO, NOTE_ICON_LINE, artScale, stampLayout, stampPreset, stampScale, TEXT_PADDING, freeTextLines, lineAdvance, toWinAnsi, NOTE_INK, NOTE_SIZE, annotationBounds, arrowHead, noteIcon, quadBounds } from '@pagewright/core';
 
 /** A Form XObject description, independent of pdf-lib so it can be unit tested as plain data. */
 export interface AppearanceStream {
@@ -14,7 +14,18 @@ export interface AppearanceStream {
   font?: FontFamily | 'sansBold';
   /** Whether the content draws an image XObject as /Im1; the writer adds the embedded image to the resources. */
   image?: boolean;
+  /**
+   * Embedded fonts the content refers to as /U0, /U1... (the number is the subset index in UNICODE_SUBSETS) for
+   * text in other alphabets; the writer adds them to the resources. Always of the annotation's own family.
+   */
+  unicodeFonts?: { family: FontFamily; subsets: number[] };
 }
+
+/**
+ * Turns text into a PDF string for an embedded font: glyph ids in the font's subset, which only the writer knows.
+ * `subset` is an index into UNICODE_SUBSETS.
+ */
+export type UnicodeEncoder = (family: FontFamily, subset: number, text: string) => string;
 
 const n = (v: number) => {
   const s = (Math.round(v * 1000) / 1000).toString();
@@ -181,16 +192,32 @@ const hex = (bytes: Uint8Array) => `<${[...bytes].map((b) => b.toString(16).padS
  * Free text: each wrapped line is positioned absolutely, so the saved page matches the editor line for line.
  * Text is encoded as WinAnsi and shown with one of the standard fonts (/F1), which the writer supplies.
  */
-export function buildFreeTextAppearance(a: FreeTextAnnot): AppearanceStream {
+/**
+ * A text box. Western European text is drawn with a standard font (/F1) as WinAnsi bytes. A box with letters from
+ * other alphabets is drawn with the embedded Noto fonts instead, switching font object (/U0, /U1...) wherever the
+ * line moves to a character from another of the font's files; `encode` turns each piece into glyph ids.
+ */
+export function buildFreeTextAppearance(a: FreeTextAnnot, encode?: UnicodeEncoder): AppearanceStream {
   const { x, y, w, h } = a.rect;
-  const ops = ['BT', `/F1 ${n(a.fontSize)} Tf`, `${rgb(a.color)} rg`];
+  const unicode = freeTextUnicode(a);
+  if (unicode && !encode) throw new Error('text in other alphabets needs the embedded fonts');
+  const ops = ['BT', `${rgb(a.color)} rg`];
+  if (!unicode) ops.push(`/F1 ${n(a.fontSize)} Tf`);
+  const used = new Set<number>();
   freeTextLines(a).forEach((line, i) => {
     if (line === '') return;
     const baseline = y + h - TEXT_PADDING - BASELINE_RATIO * a.fontSize - i * lineAdvance(a.fontSize);
-    ops.push(`1 0 0 1 ${n(x + TEXT_PADDING)} ${n(baseline)} Tm`, `${hex(toWinAnsi(line))} Tj`);
+    ops.push(`1 0 0 1 ${n(x + TEXT_PADDING)} ${n(baseline)} Tm`);
+    if (!unicode) return void ops.push(`${hex(toWinAnsi(line))} Tj`);
+    // Each Tj moves the text position on by what it drew, so the pieces follow one another along the line.
+    for (const run of unicodeRuns(a.fontFamily, line)) {
+      used.add(run.subset);
+      ops.push(`/U${run.subset} ${n(a.fontSize)} Tf`, `${encode!(a.fontFamily, run.subset, run.text)} Tj`);
+    }
   });
   ops.push('ET');
-  return { bbox: [x, y, x + w, y + h], content: ops.join('\n'), multiply: false, opacity: a.opacity * a.color.a, font: a.fontFamily };
+  const base = { bbox: [x, y, x + w, y + h] as AppearanceStream['bbox'], content: ops.join('\n'), multiply: false, opacity: a.opacity * a.color.a };
+  return unicode ? { ...base, unicodeFonts: { family: a.fontFamily, subsets: [...used].sort((p, q) => p - q) } } : { ...base, font: a.fontFamily };
 }
 
 /** A rounded rectangle as PDF path operators, with its lower-left corner at (x, y). */
