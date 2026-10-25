@@ -1,5 +1,5 @@
 import type { ImageLoader, StampImage } from './image-loader';
-import { DEFAULT_RECENT_COLORS, DEFAULT_TOOL_STYLES, STYLES_KEY, isStyledTool, nextRecent, readSavedStyles, type SavedStyles, type StyledTool, type ToolStyle } from './tool-style';
+import { DEFAULT_RECENT_COLORS, DEFAULT_TOOL_STYLES, STYLES_KEY, hasFill, isStyledTool, nextRecent, readSavedStyles, type SavedStyles, type StyledTool, type ToolStyle } from './tool-style';
 import {
   isSignatureArt, strokesToArt, MAX_IMAGE_FILE_BYTES, newImageStampRect, newSignatureRect, DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
   type Annotation, type AnnotComment, type AnnotId, type SignatureArt, type SourceAnnotation, type StampAnnot, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
@@ -20,10 +20,12 @@ export interface DrawStyle {
   fontFamily: FontFamily;
   /** Rectangles and ellipses only. */
   fill?: RGBA;
+  /** 0.1 to 1: how opaque the whole annotation is. */
+  opacity: number;
 }
 
 export const DEFAULT_DRAW_STYLE: DrawStyle = {
-  color: { r: 0.86, g: 0.15, b: 0.15, a: 1 }, width: 2, fontSize: DEFAULT_FONT_SIZE, fontFamily: 'sans',
+  color: { r: 0.86, g: 0.15, b: 0.15, a: 1 }, width: 2, fontSize: DEFAULT_FONT_SIZE, fontFamily: 'sans', opacity: 1,
 };
 
 /** A text box being typed. For a new box `id` is unset and it becomes an annotation only once it has text. */
@@ -123,6 +125,15 @@ const SIGNATURES_KEY = 'signatures';
 const VISUAL_SIGNATURE_NOTICE =
   'A visual signature only shows your signature on the page. It is not a digital signature and does not prove who signed.';
 
+/** A draw style with `fill: undefined` has no fill at all (so `'fill' in style` stays an honest test). */
+function withoutEmptyFill<T extends { fill?: RGBA }>(style: T): T {
+  if ('fill' in style && style.fill === undefined) {
+    const { fill: _none, ...rest } = style;
+    return rest as T;
+  }
+  return style;
+}
+
 /** What comes back from storage may be old, damaged or edited by hand: keep only entries we can safely use. */
 function validSignatures(stored: unknown): SavedSignature[] {
   if (!Array.isArray(stored)) return [];
@@ -196,7 +207,7 @@ export class AppStore {
       ...(saved.recentColors.length > 0 ? { recentColors: saved.recentColors } : {}),
       drawStyle: {
         ...this.ui.drawStyle,
-        ...(own ? { color: own.color, width: own.width } : {}),
+        ...(own ? withoutEmptyFill({ ...this.ui.drawStyle, color: own.color, width: own.width, opacity: own.opacity, fill: own.fill }) : {}),
         ...(saved.fontFamily ? { fontFamily: saved.fontFamily } : {}),
         ...(saved.fontSize ? { fontSize: saved.fontSize } : {}),
       },
@@ -346,7 +357,7 @@ export class AppStore {
     this.history.execute(
       addAnnotation({
         type, id, pageId, author: this.author, createdAt: now, modifiedAt: now,
-        color: this.ui.toolStyles[type].color, opacity: type === 'highlight' ? 0.5 : 1, origin: 'app', quads,
+        color: this.ui.toolStyles[type].color, opacity: this.ui.toolStyles[type].opacity, origin: 'app', quads,
       }),
     );
     return id;
@@ -356,18 +367,18 @@ export class AppStore {
   addInk(pageId: PageId, strokes: Point[][]): AnnotId | undefined {
     const kept = strokes.filter((s) => s.length > 0);
     if (kept.length === 0) return undefined;
-    const { color, width } = this.ui.drawStyle;
-    return this.addDrawn({ type: 'ink', pageId, strokes: kept, width, color } as const);
+    const { color, width, opacity } = this.ui.drawStyle;
+    return this.addDrawn({ type: 'ink', pageId, strokes: kept, width, color, opacity } as const);
   }
 
   /** A shape dragged from corner/end `a` to `b`, in PDF user space. */
   addShape(pageId: PageId, shape: ShapeTool, a: Point, b: Point): AnnotId {
-    const { color, width, fill } = this.ui.drawStyle;
+    const { color, width, fill, opacity } = this.ui.drawStyle;
     const isLine = shape === 'line' || shape === 'arrow';
     const rect = isLine ? pointsBounds([a, b]) : normalizeRect(a, b);
     return this.addDrawn({
       type: 'shape', pageId, shape, rect, ...(isLine ? { line: [a, b] as [Point, Point] } : {}),
-      width, color, ...(!isLine && fill ? { fill } : {}),
+      width, color, opacity, ...(!isLine && fill ? { fill } : {}),
     } as const);
   }
 
@@ -610,10 +621,13 @@ export class AppStore {
     const style: DrawStyle = { ...this.ui.drawStyle, ...patch };
     if ('fill' in patch && patch.fill === undefined) delete style.fill;
     const tool = this.ui.activeTool;
-    const remember = isStyledTool(tool) && ('color' in patch || 'width' in patch);
+    const remember = isStyledTool(tool) && ('color' in patch || 'width' in patch || 'opacity' in patch || 'fill' in patch);
+    const own: ToolStyle | undefined = remember
+      ? { color: style.color, width: style.width, opacity: style.opacity, ...(hasFill(tool) && style.fill ? { fill: style.fill } : {}) }
+      : undefined;
     this.patch({
       drawStyle: style,
-      ...(remember ? { toolStyles: { ...this.ui.toolStyles, [tool]: { color: style.color, width: style.width } } } : {}),
+      ...(own ? { toolStyles: { ...this.ui.toolStyles, [tool as StyledTool]: own } } : {}),
     });
     this.saveStyles();
   }
@@ -622,15 +636,17 @@ export class AppStore {
     const color = patch.color ?? a.color;
     switch (a.type) {
       case 'freetext': {
-        const next = fitFreeText({ ...a, color, fontSize: patch.fontSize ?? a.fontSize, fontFamily: patch.fontFamily ?? a.fontFamily });
+        const next = fitFreeText({ ...a, color, fontSize: patch.fontSize ?? a.fontSize, fontFamily: patch.fontFamily ?? a.fontFamily, opacity: patch.opacity ?? a.opacity });
         if (next !== a && JSON.stringify(next) !== JSON.stringify(a)) this.updateAnnotation(next);
         return;
       }
       case 'ink':
-        if (color !== a.color || (patch.width !== undefined && patch.width !== a.width)) this.updateAnnotation({ ...a, color, width: patch.width ?? a.width });
+        if (color !== a.color || (patch.width !== undefined && patch.width !== a.width) || (patch.opacity !== undefined && patch.opacity !== a.opacity)) {
+          this.updateAnnotation({ ...a, color, width: patch.width ?? a.width, opacity: patch.opacity ?? a.opacity });
+        }
         return;
       case 'shape': {
-        const next: ShapeAnnot = { ...a, color, width: patch.width ?? a.width };
+        const next: ShapeAnnot = { ...a, color, width: patch.width ?? a.width, opacity: patch.opacity ?? a.opacity };
         if ('fill' in patch) {
           if (patch.fill && !a.line) next.fill = patch.fill;
           else delete next.fill;
@@ -638,9 +654,13 @@ export class AppStore {
         this.updateAnnotation(next);
         return;
       }
-      default:
-        // Highlights, underlines, strikeouts and notes have a colour and nothing else to change here.
+      case 'note':
+        // A note's icon has a colour and nothing else to change here.
         if (patch.color) this.updateAnnotation({ ...a, color: patch.color });
+        return;
+      default:
+        // Highlights, underlines and strikeouts: colour and transparency.
+        if (patch.color || patch.opacity !== undefined) this.updateAnnotation({ ...a, color: patch.color ?? a.color, opacity: patch.opacity ?? a.opacity });
     }
   }
 
@@ -753,7 +773,7 @@ export class AppStore {
         pageId: m.pageId,
         annot: {
           type, id: this.newId(), pageId: m.pageId, author: this.author, createdAt: now, modifiedAt: now,
-          color: this.ui.toolStyles[type].color, opacity: type === 'highlight' ? 0.5 : 1, origin: 'app' as const, quads: m.quads,
+          color: this.ui.toolStyles[type].color, opacity: this.ui.toolStyles[type].opacity, origin: 'app' as const, quads: m.quads,
         },
       }));
     if (made.length === 0) return [];
@@ -816,6 +836,7 @@ export class AppStore {
     const needsChoice = tool === 'signature' && !this.ui.signatures.some((s) => s.id === this.ui.activeSignature);
     // A tool draws with its own colour and thickness, as it was last set.
     const own = isStyledTool(tool) ? this.ui.toolStyles[tool] : undefined;
+    const drawn: Partial<DrawStyle> = own ? { color: own.color, width: own.width, opacity: own.opacity, fill: own.fill } : {};
     // Choosing another tool lets go of the selected annotation, so the options box shows that tool's style again
     // (and a colour picked for it cannot restyle an annotation chosen earlier).
     const keepSelection = tool === 'select' || tool === this.ui.activeTool;
@@ -823,7 +844,7 @@ export class AppStore {
       activeTool: tool,
       ...(keepSelection ? {} : { selectedAnnot: undefined }),
       ...(needsChoice ? { signatureDialog: true } : {}),
-      ...(own ? { drawStyle: { ...this.ui.drawStyle, color: own.color, width: own.width } } : {}),
+      ...(own ? { drawStyle: withoutEmptyFill({ ...this.ui.drawStyle, ...drawn }) } : {}),
     });
   }
 

@@ -6,7 +6,7 @@ import {
 import type { RGBA } from '@pagewright/core';
 import { listThreads } from '../comments';
 import { useSnapshot, useUi } from '../react';
-import { ColourControl, ThicknessControl } from './StyleOptions';
+import { ColourControl, FillControl, OpacityControl, ThicknessControl } from './StyleOptions';
 import { FontControls, ICON, IconButton, SignatureControls, StampControls, TOOL_GROUPS, usePickTool, useToolOptions } from './Toolbar';
 
 /** Screens this narrow get the phone layout: a slim top bar, and the tools and their options at the bottom. */
@@ -138,19 +138,24 @@ export function PhoneDock() {
   const { doc, ui } = useSnapshot();
   const o = useToolOptions();
   const pick = usePickTool();
-  const [thick, setThick] = useState(false);
+  // Which slider is open above the dock, if any.
+  const [pop, setPop] = useState<'thickness' | 'opacity'>();
   const thickBox = useRef<HTMLDivElement>(null);
+  const opacityBox = useRef<HTMLDivElement>(null);
   const hasPages = doc.pages.length > 0;
-  const showThick = thick && o.thicknessOn;
-  // The slider closes when the page (or anything else) is touched, so it never covers what is being drawn.
+  const showThick = pop === 'thickness' && o.thicknessOn;
+  const showOpacity = pop === 'opacity' && o.opacityOn;
+  // A slider closes when the page (or anything else) is touched, so it never covers what is being drawn.
   useEffect(() => {
-    if (!showThick) return;
+    if (!showThick && !showOpacity) return;
+    const box = showThick ? thickBox : opacityBox;
     const away = (e: PointerEvent) => {
-      if (!thickBox.current?.contains(e.target as Node)) setThick(false);
+      if (!box.current?.contains(e.target as Node)) setPop(undefined);
     };
     document.addEventListener('pointerdown', away);
     return () => document.removeEventListener('pointerdown', away);
-  }, [showThick]);
+  }, [showThick, showOpacity]);
+  const toggle = (which: 'thickness' | 'opacity') => setPop(pop === which ? undefined : which);
   return (
     <div className="phone-dock">
       <PagePill />
@@ -159,7 +164,7 @@ export function PhoneDock() {
           <ColourControl color={o.color} recent={o.recent} disabled={!o.colourOn} onChoose={(c) => store.chooseColor(c)} />
         </div>
         <div className={o.thicknessOn ? 'chip-wrap' : 'chip-wrap off'} ref={thickBox}>
-          <button className="chip" aria-label={`Thickness: ${o.width} pt`} aria-expanded={showThick} disabled={!o.thicknessOn} onClick={() => setThick(!thick)}>
+          <button className="chip" aria-label={`Thickness: ${o.width} pt`} aria-expanded={showThick} disabled={!o.thicknessOn} onClick={() => toggle('thickness')}>
             <svg width="26" height="16" viewBox="0 0 26 16" aria-hidden="true">
               <line x1="3" y1="8" x2="23" y2="8" stroke={css(o.color)} strokeWidth={Math.min(Math.max(o.width, 1), 6)} strokeLinecap="round" />
             </svg>
@@ -167,11 +172,26 @@ export function PhoneDock() {
             <ChevronDown size={14} strokeWidth={2} aria-hidden />
           </button>
           {showThick && (
-            <div className="thickness-pop" role="dialog" aria-label="Thickness" onKeyDown={(e) => e.key === 'Escape' && setThick(false)}>
+            <div className="thickness-pop" role="dialog" aria-label="Thickness" onKeyDown={(e) => e.key === 'Escape' && setPop(undefined)}>
               <ThicknessControl width={o.width} color={o.color} disabled={false} onChange={(w) => store.setDrawStyle({ width: w })} />
             </div>
           )}
         </div>
+        {o.fillOn && <FillControl fill={o.fill} onChoose={(c) => store.setDrawStyle({ fill: c })} />}
+        {o.opacityOn && (
+          <div className="chip-wrap" ref={opacityBox}>
+            <button className="chip" aria-label={`Opacity: ${Math.round(o.opacity * 100)}%`} aria-expanded={showOpacity} onClick={() => toggle('opacity')}>
+              <span className="opacity-swatch" style={{ background: css(o.color), opacity: o.opacity }} aria-hidden="true" />
+              {Math.round(o.opacity * 100)}%
+              <ChevronDown size={14} strokeWidth={2} aria-hidden />
+            </button>
+            {showOpacity && (
+              <div className="thickness-pop" role="dialog" aria-label="Opacity" onKeyDown={(e) => e.key === 'Escape' && setPop(undefined)}>
+                <OpacityControl opacity={o.opacity} onChange={(v) => store.setDrawStyle({ opacity: v })} />
+              </div>
+            )}
+          </div>
+        )}
         {o.textual && <FontControls font={o.font} />}
         <StampControls />
         <SignatureControls />
@@ -184,7 +204,7 @@ export function PhoneDock() {
             aria-label={label}
             aria-checked={ui.activeTool === id}
             className={ui.activeTool === id ? 'tile active' : 'tile'}
-            onClick={() => (setThick(false), pick(id))}
+            onClick={() => (setPop(undefined), pick(id))}
             disabled={!hasPages}
           >
             <Icon size={22} strokeWidth={1.8} aria-hidden />

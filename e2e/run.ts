@@ -878,6 +878,53 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     check('back on a wide screen, the desktop toolbar returns', !!(await s.page.$('button[aria-label="Rotate left"]')) && !(await s.page.$('.phone-dock')));
   },
 
+  async fillOpacity(s) {
+    console.log('Fill and opacity');
+    await openPdf(s.page, SAMPLE);
+    await chooseTool(s.page, 'Rectangle');
+    await (await s.page.$('button[aria-label^="Fill: "]'))!.click();
+    await (await s.page.waitForSelector('[role=dialog][aria-label="Fill colours"] button[aria-label="Blue"]'))!.click();
+    const slider = (await (await s.page.$('.opacity-control input'))!.boundingBox())!;
+    // Drag the opacity slider to the middle with the real mouse.
+    await s.page.mouse.move(slider.x + slider.width - 3, slider.y + slider.height / 2);
+    await s.page.mouse.down();
+    await s.page.mouse.move(slider.x + slider.width * 0.45, slider.y + slider.height / 2, { steps: 6 });
+    await s.page.mouse.up();
+    const percent = Number((await s.page.$eval('.opacity-control input', (i) => i.getAttribute('aria-valuetext')))!.replace('%', ''));
+    check('the opacity slider sets a value part way', percent >= 35 && percent <= 65, `${percent}%`);
+    const height = await s.page.$eval('.toolbar', (e) => e.getBoundingClientRect().height);
+    await chooseTool(s.page, 'Pen');
+    check('fill and opacity fit in the third row without changing the toolbar height', Math.abs((await s.page.$eval('.toolbar', (e) => e.getBoundingClientRect().height)) - height) < 1);
+    await chooseTool(s.page, 'Rectangle');
+
+    await dragOnPage(s.page, [140, 230], [520, 300]); // over the first lines of text
+    const shown = await s.page.$eval(`${SHAPE}`, (r) => ({ fill: r.getAttribute('fill'), group: r.closest('g.annot')!.getAttribute('opacity') }));
+    check('the editor draws it filled, and see-through', /rgb/.test(shown.fill ?? '') && Number(shown.group) === percent / 100, JSON.stringify(shown));
+    await s.page.screenshot({ path: resolve(SHOTS, 'fill-opacity.png') });
+
+    await clickButton(s.page, 'Save');
+    const file = await waitForDownload();
+    const doc = await PDFDocument.load(readFileSync(file));
+    const annots = doc.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    const sq = annots.asArray().map((_, i) => annots.lookup(i, PDFDict)).filter((d) => (d.lookup(PDFName.of('Subtype')) as PDFName).decodeText() === 'Square').at(-1)!;
+    const ic = sq.lookup(PDFName.of('IC'), PDFArray).asArray().map((n) => Number(n.toString()));
+    const ca = Number(sq.lookup(PDFName.of('CA'))!.toString());
+    check('the saved rectangle has its fill colour and its opacity', ic.length === 3 && ic[2]! > 0.8 && Math.abs(ca - percent / 100) < 0.001, JSON.stringify({ ic, ca }));
+
+    await s.page.goto(s.url);
+    await openPdf(s.page, file);
+    const rect = sq.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Number(n.toString()));
+    const px = await s.page.evaluate((r) => {
+      const c = document.querySelector('.page-view canvas') as HTMLCanvasElement;
+      const k = c.width / 612;
+      const x = Math.round(((r[0]! + r[2]!) / 2) * k);
+      const y = Math.round((792 - (r[1]! + r[3]!) / 2) * k);
+      return Array.from(c.getContext('2d')!.getImageData(x, y, 1, 1).data);
+    }, rect);
+    // Blue at about half opacity over white paper: clearly bluish, but lighter than solid blue (which has red ~38).
+    check('opened again, PDF.js draws it see-through: paper shows through the blue', px[2]! > px[0]! + 40 && px[0]! > 80, JSON.stringify(px));
+  },
+
   async pages(s) {
     console.log('Page grid');
     await openPdf(s.page, SAMPLE);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { RGBA } from '@pagewright/core';
 import { PALETTE, THICKNESS_STEPS, colorName, fromHex, sameColor, thicknessStep, toHex } from '../tool-style';
@@ -127,6 +127,89 @@ export function ThicknessControl({ width, color, disabled, onChange }: { width: 
         <line x1="6" y1="12" x2="34" y2="12" stroke={css(color)} strokeWidth={Math.min(shown, 12)} strokeLinecap="round" />
       </svg>
       <span className="thickness-value">{label}</span>
+    </div>
+  );
+}
+
+/** Closes a pop-up when anything outside `box` is pressed. */
+function useCloseOutside(open: boolean, box: RefObject<HTMLElement | null>, close: () => void) {
+  const latest = useRef(close);
+  latest.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) latest.current();
+    };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [open, box]);
+}
+
+/** The fill of a rectangle or ellipse: a button showing it, which opens No fill and the palette. */
+export function FillControl({ fill, onChoose }: { fill: RGBA | undefined; onChoose: (c: RGBA | undefined) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useCloseOutside(open, box, () => setOpen(false));
+  const choose = (c: RGBA | undefined) => {
+    setOpen(false);
+    if (!(c === undefined ? fill === undefined : fill !== undefined && sameColor(c, fill))) onChoose(c);
+  };
+  return (
+    <div className="colour-control fill-control" ref={box} onKeyDown={(e) => e.key === 'Escape' && open && (e.stopPropagation(), setOpen(false))}>
+      <span className="option-label">Fill</span>
+      <button className="swatch-button" aria-label={`Fill: ${fill ? colorName(fill) : 'None'}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {fill ? <span className="swatch-dot" style={{ background: css(fill) }} /> : <span className="fill-none">None</span>}
+        <ChevronDown size={14} strokeWidth={2} aria-hidden />
+      </button>
+      {open && (
+        <div className="palette" role="dialog" aria-label="Fill colours">
+          <button className="no-fill" aria-pressed={fill === undefined} onClick={() => choose(undefined)}>
+            <span className="swatch-dot no-fill-dot" aria-hidden="true" />
+            No fill
+          </button>
+          <div className="palette-grid">
+            {PALETTE.map((p) => (
+              <button key={p.name} className="swatch-dot-button" aria-label={p.name} aria-pressed={!!fill && sameColor(p.color, fill)} onClick={() => choose(p.color)}>
+                <span className="swatch-dot" style={{ background: css(p.color) }} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * How opaque the annotation is, 10% to 100%: a slider that previews while dragged and applies when let go (so a
+ * restyle is one undo step), like the thickness.
+ */
+export function OpacityControl({ opacity, onChange }: { opacity: number; onChange: (o: number) => void }) {
+  const id = useId();
+  const percent = Math.round(opacity * 100);
+  const [dragging, setDragging] = useState<number>();
+  const shown = dragging ?? percent;
+  const slider = useCommit((v) => {
+    setDragging(undefined);
+    const p = Number(v);
+    if (Number.isFinite(p) && p !== percent) onChange(p / 100);
+  });
+  return (
+    <div className="thickness-control opacity-control">
+      <label className="option-label" htmlFor={id}>Opacity</label>
+      <input
+        ref={slider}
+        id={id}
+        type="range"
+        min={10}
+        max={100}
+        step={5}
+        value={shown}
+        aria-valuetext={`${shown}%`}
+        onInput={(e) => setDragging(Number(e.currentTarget.value))}
+        onChange={() => {}}
+      />
+      <span className="thickness-value">{shown}%</span>
     </div>
   );
 }

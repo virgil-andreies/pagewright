@@ -56,9 +56,13 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
 .toolbar .zoom-level { height: 40px; min-width: 56px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .toolbar .badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-text); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
 .toolbar button.active .badge { background: var(--accent-text); color: var(--accent); }
-/* Tooltips for icon-only buttons; their names are already on them (aria-label) for screen readers. */
+/* Tooltips for icon-only buttons; their names are already on them (aria-label) for screen readers. Only on devices
+   that really hover: on a touch screen a tap counts as a hover, and the tooltip would stay stuck. */
 .tip { position: relative; }
-.tip:hover::after, .tip:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--tip-bg); color: var(--tip-text); font-size: 12px; line-height: 1.3; padding: 4px 8px; border-radius: 6px; white-space: nowrap; z-index: 20; pointer-events: none; }
+@media (hover: hover) {
+  .tip:hover::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--tip-bg); color: var(--tip-text); font-size: 12px; line-height: 1.3; padding: 4px 8px; border-radius: 6px; white-space: nowrap; z-index: 20; pointer-events: none; }
+}
+.tip:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--tip-bg); color: var(--tip-text); font-size: 12px; line-height: 1.3; padding: 4px 8px; border-radius: 6px; white-space: nowrap; z-index: 20; pointer-events: none; }
 .tool-groups { display: flex; flex-wrap: wrap; gap: 8px 12px; }
 .tool-group { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-right: 12px; border-right: 1px solid var(--border); }
 .tool-group .tiles { display: flex; gap: 2px; }
@@ -92,6 +96,14 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
 .thickness-control input[type='range'] { width: 150px; height: 30px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .thickness-control input[type='range']:disabled { cursor: default; }
 .thickness-value { min-width: 44px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.fill-none { font-size: 13px; color: var(--text); }
+.palette .no-fill { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 8px; font-size: 13px; align-self: flex-start; }
+.palette .no-fill[aria-pressed='true'] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.no-fill-dot { background: linear-gradient(135deg, transparent 45%, #dc2626 45%, #dc2626 55%, transparent 55%), #ffffff; }
+.opacity-control input[type='range'] { width: 110px; }
+.toolbar .option-row.extra .fill-control .swatch-button { height: 28px; }
+.toolbar .option-row.extra { gap: 14px; }
+.opacity-swatch { display: inline-block; width: 18px; height: 18px; border-radius: 4px; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25); }
 .options-hint { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .toolbar .status { margin-left: auto; color: var(--muted); font-size: 13px; }
 @media (max-width: 1200px) {
@@ -116,7 +128,10 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
 .sheet-zoom { display: flex; align-items: center; gap: 8px; }
 .phone-dock { position: relative; flex: none; display: flex; flex-direction: column; gap: 4px; padding: 4px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -2px 8px rgb(0 0 0 / 0.06); }
 .phone-options { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 44px; }
-.phone-options .colour-control .option-label { display: none; }
+.phone-options .colour-control:not(.fill-control) .option-label { display: none; }
+/* On a phone the palettes open from the dock's left edge, not from their button, so they stay on the screen. */
+.phone-options .colour-control { position: static; }
+.phone-dock .palette { left: 8px; }
 .phone-options .chip-wrap { display: flex; align-items: center; }
 .phone-options .chip-wrap.off { opacity: 0.4; }
 .phone-dock .swatch-button, .phone-dock .chip { height: 40px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; border-radius: 20px; font-size: 13px; color: var(--text); }

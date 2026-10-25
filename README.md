@@ -14,6 +14,7 @@ A PDF app for organising pages and marking up documents. It runs in the browser 
 **Marking up**
 - Select and copy the document's own text
 - Highlight, underline and strike out exactly the text you select
+- Each tool keeps its own colour, thickness, fill (rectangles and ellipses) and transparency, also after closing the app
 - Pen, rectangle, ellipse, line and arrow; text boxes in sans, serif or mono, in Western and Central European languages, Cyrillic, Greek and Vietnamese (a box in another alphabet embeds only the letters it uses)
 - Preset stamps (Approved, Draft, Confidential and more), movable and resizable
 - Typed visual signatures in four handwriting styles, or drawn by hand with a mouse, finger or pen, kept on your device and saved as vector shapes so they look the same in every viewer (they are pictures of a name, not digital signatures)

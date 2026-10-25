@@ -8,7 +8,13 @@ export interface ToolStyle {
   color: RGBA;
   /** Line thickness in points; only used by the pen and the shapes. */
   width: number;
+  /** How opaque what the tool makes is, from 0.1 to 1 (the whole annotation: outline and fill alike). */
+  opacity: number;
+  /** Rectangles and ellipses only: the colour inside them, or none. */
+  fill?: RGBA;
 }
+
+export const MIN_OPACITY = 0.1;
 
 const rgb = (r: number, g: number, b: number): RGBA => ({ r, g, b, a: 1 });
 
@@ -44,16 +50,16 @@ export function thicknessStep(width: number): number {
 
 /** How each tool starts: highlights yellow, underlines blue, strikeouts red, notes their usual yellow, the rest red. */
 export const DEFAULT_TOOL_STYLES: Readonly<Record<StyledTool, ToolStyle>> = {
-  highlight: { color: named('Yellow'), width: 2 },
-  underline: { color: named('Blue'), width: 2 },
-  strikeout: { color: named('Red'), width: 2 },
-  ink: { color: named('Red'), width: 2 },
-  rect: { color: named('Red'), width: 2 },
-  ellipse: { color: named('Red'), width: 2 },
-  line: { color: named('Red'), width: 2 },
-  arrow: { color: named('Red'), width: 2 },
-  note: { color: NOTE_FILL, width: 2 },
-  text: { color: named('Red'), width: 2 },
+  highlight: { color: named('Yellow'), width: 2, opacity: 0.5 },
+  underline: { color: named('Blue'), width: 2, opacity: 1 },
+  strikeout: { color: named('Red'), width: 2, opacity: 1 },
+  ink: { color: named('Red'), width: 2, opacity: 1 },
+  rect: { color: named('Red'), width: 2, opacity: 1 },
+  ellipse: { color: named('Red'), width: 2, opacity: 1 },
+  line: { color: named('Red'), width: 2, opacity: 1 },
+  arrow: { color: named('Red'), width: 2, opacity: 1 },
+  note: { color: NOTE_FILL, width: 2, opacity: 1 },
+  text: { color: named('Red'), width: 2, opacity: 1 },
 };
 
 export const DEFAULT_RECENT_COLORS: readonly RGBA[] = [named('Blue'), named('Black'), named('Green')];
@@ -61,6 +67,19 @@ export const MAX_RECENT_COLORS = 3;
 
 export function isStyledTool(tool: ToolId): tool is StyledTool {
   return tool in DEFAULT_TOOL_STYLES;
+}
+
+/**
+ * Whether a tool's transparency can be set: everything with a colour except notes, whose icon must stay readable,
+ * and text boxes, whose row in the options holds the font instead.
+ */
+export function hasOpacity(tool: ToolId): boolean {
+  return isStyledTool(tool) && tool !== 'note' && tool !== 'text';
+}
+
+/** Whether a tool draws something that can be filled (rectangles and ellipses). */
+export function hasFill(tool: ToolId): boolean {
+  return tool === 'rect' || tool === 'ellipse';
 }
 
 /** Whether a tool's thickness can be set (the pen and the shapes). */
@@ -127,7 +146,10 @@ export function readSavedStyles(stored: unknown): SavedStyles | undefined {
     const min = THICKNESS_STEPS[0]!;
     const max = THICKNESS_STEPS[THICKNESS_STEPS.length - 1]!;
     if (t && isColor(t.color) && typeof t.width === 'number' && t.width >= min && t.width <= max) {
-      toolStyles[tool] = { color: { r: t.color.r, g: t.color.g, b: t.color.b, a: t.color.a }, width: t.width };
+      // Older saves have no opacity or fill: the tool keeps its default for those.
+      const opacity = typeof t.opacity === 'number' && t.opacity >= MIN_OPACITY && t.opacity <= 1 ? t.opacity : DEFAULT_TOOL_STYLES[tool].opacity;
+      const fill = hasFill(tool) && isColor(t.fill) ? { r: t.fill.r, g: t.fill.g, b: t.fill.b, a: t.fill.a } : undefined;
+      toolStyles[tool] = { color: { r: t.color.r, g: t.color.g, b: t.color.b, a: t.color.a }, width: t.width, opacity, ...(fill ? { fill } : {}) };
     }
   }
   const recentColors = Array.isArray(s.recentColors) ? s.recentColors.filter(isColor).slice(0, MAX_RECENT_COLORS) : [];

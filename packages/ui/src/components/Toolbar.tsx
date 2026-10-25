@@ -9,8 +9,8 @@ import { listThreads } from '../comments';
 import { applySelectionMarkup, hasSelection } from '../selection';
 import { useSnapshot, useUi } from '../react';
 import type { ToolId } from '../store';
-import { hasThickness, isStyledTool } from '../tool-style';
-import { ColourControl, ThicknessControl } from './StyleOptions';
+import { hasFill, hasOpacity, hasThickness, isStyledTool } from '../tool-style';
+import { ColourControl, FillControl, OpacityControl, ThicknessControl } from './StyleOptions';
 
 interface Tool { id: ToolId; label: string; key: string; icon: LucideIcon }
 
@@ -145,6 +145,13 @@ export function useToolOptions() {
   const thicknessOn = hasPages && (sel ? !!editable && !!lined : hasThickness(tool));
   const textual = !!(sel ? editable && sel.type === 'freetext' : tool === 'text');
   const font = sel?.type === 'freetext' ? sel : ui.drawStyle;
+  // Transparency: everything with a colour except notes (their icon must stay readable) and text boxes (their row
+  // holds the font controls). Fill: rectangles and ellipses.
+  const opacity = sel && sel.type !== 'stamp' ? sel.opacity : ui.drawStyle.opacity;
+  const opacityOn = hasPages && (sel ? !!editable && sel.type !== 'note' && sel.type !== 'freetext' : hasOpacity(tool));
+  const fillable = sel && sel.type === 'shape' && (sel.shape === 'rect' || sel.shape === 'ellipse') ? sel : undefined;
+  const fill = sel ? fillable?.fill : ui.drawStyle.fill;
+  const fillOn = hasPages && (sel ? !!editable && !!fillable : hasFill(tool));
   const hint = sel
     ? sel.origin === 'imported'
       ? 'This came with the PDF: it can be selected, read and deleted, but not restyled.'
@@ -156,7 +163,7 @@ export function useToolOptions() {
         : tool === 'highlight' || tool === 'underline' || tool === 'strikeout'
           ? 'Drag across the document’s text to mark it.'
           : undefined;
-  return { hasPages, color, width, colourOn, thicknessOn, textual, font, hint, recent: ui.recentColors };
+  return { hasPages, color, width, colourOn, thicknessOn, textual, font, hint, recent: ui.recentColors, opacity, opacityOn, fill, fillOn };
 }
 
 /** The font and size of the selected text box, or of the next one. */
@@ -210,9 +217,11 @@ function ToolOptions() {
       </div>
       <div className="option-row extra">
         {o.textual && <FontControls font={o.font} />}
+        {o.fillOn && <FillControl fill={o.fill} onChoose={(c) => store.setDrawStyle({ fill: c })} />}
+        {o.opacityOn && <OpacityControl opacity={o.opacity} onChange={(v) => store.setDrawStyle({ opacity: v })} />}
         <StampControls />
         <SignatureControls />
-        {o.hint && o.hasPages && <span className="options-hint" title={o.hint}>{o.hint}</span>}
+        {o.hint && o.hasPages && !o.fillOn && !o.opacityOn && <span className="options-hint" title={o.hint}>{o.hint}</span>}
       </div>
     </div>
   );
