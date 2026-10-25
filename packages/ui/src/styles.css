@@ -66,17 +66,22 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
 .toolbar .tile.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
 .toolbar .tile .key { position: absolute; top: 3px; right: 6px; font-size: 10px; color: var(--muted); }
 .toolbar .tile.active .key { color: var(--accent-strong); }
-.tool-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; flex: 1 1 260px; min-width: 0; }
+.tool-options { display: flex; flex-direction: column; justify-content: center; gap: 2px; flex: 1 1 260px; min-width: 0; }
 .toolbar .group[aria-label='Font'] button[aria-pressed='true'] { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The options box: Colour and Thickness first, always in the same place; greyed out where they do not apply. */
-.toolbar .style { gap: 0 16px; flex-wrap: wrap; }
-.toolbar .option { display: flex; align-items: center; }
-.toolbar .option.off { opacity: 0.4; }
+.toolbar .style { flex-direction: column; align-items: stretch; gap: 2px; }
+/* Each row has a fixed height; whatever does not fit on the third is cut off rather than making the toolbar taller. */
+.toolbar .option-row { display: flex; align-items: center; gap: 8px; height: 30px; min-width: 0; }
+.toolbar .option-row.off { opacity: 0.4; }
+.toolbar .option-row.extra { overflow: hidden; white-space: nowrap; }
+.toolbar .option-row.extra .group { flex: none; }
+.toolbar .option-row.extra select, .toolbar .option-row.extra button { height: 28px; padding-top: 0; padding-bottom: 0; }
 .toolbar .option-label { font-size: 13px; color: var(--muted); margin-right: 6px; }
 .colour-control { position: relative; display: flex; align-items: center; gap: 2px; }
-.toolbar .swatch-button { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; color: var(--muted); }
+.toolbar .swatch-button { height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; color: var(--muted); }
 .swatch-dot { display: block; width: 22px; height: 22px; border-radius: 50%; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25); }
 .toolbar .swatch-dot-button, .palette .swatch-dot-button { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-color: transparent; background: transparent; border-radius: 50%; }
+.toolbar .option-row .swatch-dot-button { width: 30px; height: 30px; }
 .swatch-dot-button:hover:not(:disabled) .swatch-dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--border); }
 .palette .swatch-dot-button[aria-pressed='true'] .swatch-dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
 .palette { position: absolute; top: calc(100% + 6px); left: 40px; z-index: 30; width: 252px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); padding: 8px; display: flex; flex-direction: column; gap: 8px; }
@@ -84,11 +89,10 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
 .palette-custom { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--border); padding: 8px 4px 0; }
 .palette-custom input { width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; }
 .thickness-control { display: flex; align-items: center; gap: 8px; }
-.thickness-control input[type='range'] { width: 150px; height: 36px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.thickness-control input[type='range'] { width: 150px; height: 30px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .thickness-control input[type='range']:disabled { cursor: default; }
 .thickness-value { min-width: 44px; font-size: 13px; font-variant-numeric: tabular-nums; }
-.options-divider { width: 1px; align-self: stretch; background: var(--border); }
-.options-hint { font-size: 13px; color: var(--muted); }
+.options-hint { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .toolbar .status { margin-left: auto; color: var(--muted); font-size: 13px; }
 @media (max-width: 1200px) {
   /* Narrower windows: Comments keeps its icon and count, and its name moves to the tooltip. */
@@ -101,6 +105,8 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
   .tool-groups { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; max-width: 100%; }
   .tool-group { padding-right: 6px; flex: none; }
   .toolbar .status { flex-basis: 100%; order: 10; margin-left: 0; font-size: 12px; }
+  .toolbar .option-row { height: auto; min-height: 32px; flex-wrap: wrap; }
+  .toolbar .option-row.extra { white-space: normal; }
 }
 button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
 button:hover:not(:disabled) { border-color: var(--accent); }

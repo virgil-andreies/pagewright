@@ -705,7 +705,7 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     check('the pen draws a stroke', (await count(s.page, `${ANNOT} polyline`)) === 1);
 
     await chooseTool(s.page, 'Arrow');
-    await dragOnPage(s.page, [150, 720], [380, 760]);
+    await dragOnPage(s.page, [430, 500], [580, 560]); // right of the rectangle: well inside the window
     check('the arrow tool draws an arrow', (await count(s.page, `${ANNOT} polygon`)) >= 1);
 
     await chooseTool(s.page, 'Select');
@@ -744,7 +744,8 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await (await s.page.$('button[aria-label^="Colour: "]'))!.click();
     await s.page.waitForSelector('[role=dialog][aria-label=Colours]');
     const box = (await (await s.page.$('[role=dialog][aria-label=Colours]'))!.boundingBox())!;
-    check('the palette opens below the button, fully on screen', box.y > 100 && box.x >= 0 && box.x + box.width <= 1360, JSON.stringify(box));
+    const button = (await (await s.page.$('button[aria-label^="Colour: "]'))!.boundingBox())!;
+    check('the palette opens below the button, fully on screen', box.y >= button.y + button.height && box.x >= 0 && box.x + box.width <= 1360, JSON.stringify(box));
     await s.page.screenshot({ path: resolve(SHOTS, 'palette.png') });
     await (await s.page.$('[role=dialog][aria-label=Colours] button[aria-label="Purple"]'))!.click();
     await sleep(100);
@@ -773,6 +774,52 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await chooseTool(s.page, 'Pen');
     check('back on the pen: purple and its thickness again', (await colourLabel()) === 'Colour: Purple' && (await thickness()) === `${picked} pt`);
     await s.page.screenshot({ path: resolve(SHOTS, 'tool-options.png'), clip: { x: 0, y: 0, width: 1360, height: 200 } });
+
+    // With an annotation selected, the options box shows and changes that annotation.
+    await chooseTool(s.page, 'Rectangle');
+    await dragOnPage(s.page, [150, 500], [320, 580]);
+    await chooseTool(s.page, 'Select');
+    await clickOnPage(s.page, 235, 500); // its top edge
+    check('selecting the rectangle shows its colour and thickness', (await colourLabel()) === 'Colour: Red' && (await thickness()) === '2 pt');
+    await (await s.page.$('button[aria-label^="Colour: "]'))!.click();
+    await (await s.page.waitForSelector('[role=dialog][aria-label=Colours] button[aria-label="Teal"]'))!.click();
+    await sleep(150);
+    const rectStroke = await s.page.$eval(`${SHAPE}`, (r) => r.getAttribute('stroke'));
+    check('picking a colour repaints the selected rectangle', /rgb\(13 148 135\)|rgb\(13, 148, 135\)/.test(rectStroke ?? ''), `${rectStroke}`);
+    await ctrl(s, 'z');
+    await sleep(150);
+    check('Ctrl+Z takes the colour back in one step', (await s.page.$eval(`${SHAPE}`, (r) => r.getAttribute('stroke'))) !== rectStroke);
+    await chooseTool(s.page, 'Rectangle');
+    check('choosing the Rectangle tool lets go of it and shows the tool’s own red', (await colourLabel()) === 'Colour: Red' && (await count(s.page, `${ANNOT}.selected`)) === 0);
+
+    // One that came with the PDF: shown, but greyed out.
+    await chooseTool(s.page, 'Select');
+    const fox = (await wordRectOf(s, 'fox'))!;
+    await s.page.mouse.click(fox.x + fox.w / 2, fox.y + fox.h / 2);
+    await sleep(200);
+    const disabled = await s.page.$eval('button[aria-label^="Colour: "]', (b) => (b as HTMLButtonElement).disabled);
+    const hint = await s.page.$eval('.options-hint', (e) => e.textContent ?? '').catch(() => '');
+    check('an annotation from the PDF shows its colour greyed out, and says why', disabled && /came with the PDF/.test(hint), hint);
+
+    // The toolbar must keep its height whatever is chosen or selected, or the page jumps between two clicks.
+    const toolbarHeight = () => s.page.$eval('.toolbar', (e) => e.getBoundingClientRect().height);
+    const heights: Record<string, number> = { 'annotation from the PDF selected': await toolbarHeight() };
+    for (const name of ['Select', 'Pen', 'Highlight', 'Note', 'Text', 'Stamp']) {
+      await chooseTool(s.page, name);
+      await sleep(100);
+      heights[name] = await toolbarHeight();
+    }
+    await chooseTool(s.page, 'Text');
+    await clickOnPage(s.page, 430, 420); // empty paper between the text and the stamps, well inside the window
+    await sleep(150);
+    await typeText(s, 'height check');
+    await ctrl(s, 'Enter');
+    await sleep(150);
+    const fontShown = !!(await s.page.$('.toolbar [aria-label="Font size"]'));
+    check('a new text box is selected, with its font controls showing', fontShown && (await count(s.page, `${ANNOT}.selected text`)) >= 1);
+    heights['text box selected'] = await toolbarHeight();
+    const distinct = new Set(Object.values(heights).map((h) => Math.round(h)));
+    check('the toolbar keeps the same height for every tool and selection', distinct.size === 1, JSON.stringify(heights));
   },
 
   async pages(s) {
@@ -813,7 +860,7 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await chooseTool(s.page, 'Pen');
     await dragOnPage(s.page, [150, 620], [400, 680]);
     await chooseTool(s.page, 'Arrow');
-    await dragOnPage(s.page, [150, 720], [380, 760]);
+    await dragOnPage(s.page, [430, 500], [580, 560]); // right of the rectangle: well inside the window
     await chooseTool(s.page, 'Note');
     await clickOnPage(s.page, 500, 300);
     await sleep(150);

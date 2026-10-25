@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { Annotation, InkAnnot, ShapeAnnot } from '@pagewright/core';
+import type { Annotation, FreeTextAnnot, InkAnnot, ShapeAnnot, SourceAnnotation } from '@pagewright/core';
 import { DEFAULT_TOOL_STYLES, PALETTE, THICKNESS_STEPS, colorName, fromHex, nextRecent, thicknessStep, toHex } from '../src/tool-style';
 import { setup } from './helpers';
 
@@ -10,8 +10,8 @@ const S = 96 / 72;
 const px = (x: number, y: number) => ({ clientX: x * S, clientY: (300 - y) * S });
 const named = (n: string) => PALETTE.find((p) => p.name === n)!.color;
 
-async function ready() {
-  const t = setup();
+async function ready(original: (pageIndex: number) => SourceAnnotation[] = () => []) {
+  const t = setup(3, original);
   await t.open();
   const svg = await waitFor(() => {
     const el = document.querySelector<SVGSVGElement>('svg.overlay');
@@ -155,7 +155,7 @@ describe('the colour button and palette', () => {
     t.tool('Stamp');
     expect(t.colourButton().disabled).toBe(true);
     expect(screen.getAllByRole('button', { name: /^Recent colour: / }).every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
-    expect(t.colourButton().closest('.option')!.className).toContain('off');
+    expect(t.colourButton().closest('.option-row')!.className).toContain('off');
   });
 });
 
@@ -217,5 +217,109 @@ describe('tool-style helpers', () => {
   it('reads and writes hex colours', () => {
     expect(toHex(fromHex('#1a2B3c')!)).toBe('#1a2b3c');
     expect(fromHex('red')).toBeUndefined();
+  });
+});
+
+describe('the options box follows the selected annotation', () => {
+  const quad = { p1: { x: 10, y: 120 }, p2: { x: 90, y: 120 }, p3: { x: 10, y: 100 }, p4: { x: 90, y: 100 } };
+
+  it('shows a selected highlight’s colour and changes it, as one undo step, without thickness', async () => {
+    const t = await ready();
+    t.tool('Select');
+    let id = '';
+    act(() => void (id = t.store.addMarkup('highlight', t.pageId, [quad])!));
+    act(() => t.store.selectAnnotation({ pageId: t.pageId, id }));
+    expect(t.colourButton().getAttribute('aria-label')).toBe('Colour: Yellow');
+    expect(t.colourButton().disabled).toBe(false);
+    expect(t.slider().disabled).toBe(true);
+    t.pick('Green');
+    expect(t.annots()[0]!.color).toEqual(named('Green'));
+    expect(t.store.getSnapshot().undoLabel).toBe('Edit annotation');
+    act(() => t.store.undo());
+    expect(t.annots()[0]!.color).toEqual(DEFAULT_TOOL_STYLES.highlight.color);
+  });
+
+  it('changes a selected note’s colour', async () => {
+    const t = await ready();
+    t.tool('Note');
+    act(() => t.store.beginNote(t.pageId, { x: 20, y: 200 }));
+    act(() => void t.store.saveDraftNote('Hello')); // the new note is selected
+    t.pick('Pink');
+    expect(t.annots()[0]!.color).toEqual(named('Pink'));
+  });
+
+  it('restyles only the selection: the tool keeps its own style for what it draws next', async () => {
+    const t = await ready();
+    t.tool('Rectangle');
+    t.drag([[20, 200], [120, 150]]);
+    t.tool('Select');
+    t.drag([[70, 200]]);
+    t.pick('Blue');
+    t.setThickness(8);
+    expect((t.annots()[0] as ShapeAnnot)).toMatchObject({ color: named('Blue'), width: 8 });
+    t.tool('Rectangle');
+    expect(t.colourButton().getAttribute('aria-label')).toBe('Colour: Red');
+    expect(t.slider().getAttribute('aria-valuetext')).toBe('2 pt');
+    t.drag([[20, 120], [120, 60]]);
+    expect((t.annots()[1] as ShapeAnnot)).toMatchObject({ color: named('Red'), width: 2 });
+  });
+
+  it('still adds the colour it replaced to the recent ones', async () => {
+    const t = await ready();
+    t.tool('Rectangle');
+    t.drag([[20, 200], [120, 150]]);
+    t.tool('Select');
+    t.drag([[70, 200]]);
+    t.pick('Teal');
+    expect(t.recent()[0]).toBe('Red');
+  });
+
+  it('lets go of the selection when another tool is chosen', async () => {
+    const t = await ready();
+    t.tool('Rectangle');
+    t.drag([[20, 200], [120, 150]]);
+    t.tool('Select');
+    t.drag([[70, 200]]);
+    expect(t.store.getSnapshot().ui.selectedAnnot).toBeTruthy();
+    t.tool('Pen');
+    expect(t.store.getSnapshot().ui.selectedAnnot).toBeUndefined();
+    t.pick('Brown'); // the pen's colour, not the rectangle's
+    expect((t.annots()[0] as ShapeAnnot).color).toEqual(named('Red'));
+    expect(t.colourButton().getAttribute('aria-label')).toBe('Colour: Brown');
+  });
+
+  it('changes only what was changed: a text box keeps its colour when its size changes', async () => {
+    const t = await ready();
+    t.tool('Text');
+    t.pick('Blue');
+    act(() => t.store.beginText(t.pageId, { x: 20, y: 250 }));
+    act(() => t.store.setEditText('hello'));
+    act(() => t.store.commitText(t.store.getSnapshot().ui.textEdit!));
+    const box = () => t.annots()[0] as FreeTextAnnot;
+    expect(box().color).toEqual(named('Blue'));
+    act(() => t.store.selectAnnotation(undefined));
+    t.pick('Green'); // the Text tool's colour for the next box
+    act(() => t.store.selectAnnotation({ pageId: t.pageId, id: box().id }));
+    expect(t.colourButton().getAttribute('aria-label')).toBe('Colour: Blue');
+    fireEvent.change(screen.getByLabelText('Font size'), { target: { value: '24' } });
+    expect(box()).toMatchObject({ fontSize: 24, color: named('Blue') });
+  });
+
+  it('shows an annotation from the PDF greyed out, and says why', async () => {
+    const t = await ready((i) => (i === 0 ? [{ id: '30R', subtype: 'Square', rect: { x: 30, y: 40, w: 80, h: 40 } }] : []));
+    await waitFor(() => expect(t.store.getSnapshot().imported[t.pageId]?.length).toBe(1));
+    t.tool('Select');
+    act(() => t.store.selectAnnotation({ pageId: t.pageId, id: t.store.getSnapshot().imported[t.pageId]![0]!.id }));
+    expect(t.colourButton().disabled).toBe(true);
+    expect(t.slider().disabled).toBe(true);
+    expect(screen.getByText(/came with the PDF/)).toBeTruthy();
+  });
+
+  it('greys out colour for a selected stamp, which keeps its own colours', async () => {
+    const t = await ready();
+    t.tool('Stamp');
+    act(() => void t.store.addStamp(t.pageId, { x: 100, y: 150 })); // selected, with the Select tool
+    expect(t.store.getSnapshot().ui.selectedAnnot).toBeTruthy();
+    expect(t.colourButton().disabled).toBe(true);
   });
 });

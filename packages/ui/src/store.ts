@@ -559,10 +559,22 @@ export class AppStore {
   }
 
   /**
-   * The drawing style for what the active tool makes next, which that tool then remembers; also restyles the
-   * selected ink, shape or text box.
+   * The selected annotation, when it is one of ours whose style can be changed here (not a stamp or signature,
+   * which keep their own colours, and not one that came with the PDF).
+   */
+  restylable(): Exclude<Annotation, StampAnnot> | undefined {
+    const sel = this.ui.selectedAnnot;
+    const a = sel && this.history.current.annotations[sel.pageId]?.find((x) => x.id === sel.id);
+    return a && a.origin === 'app' && a.type !== 'stamp' ? a : undefined;
+  }
+
+  /**
+   * Changes a style. With an annotation selected, it restyles that annotation only (as one undo step), changing just
+   * what `patch` names. Otherwise it is the style of what the active tool makes next, which that tool remembers.
    */
   setDrawStyle(patch: Partial<DrawStyle>): void {
+    const a = this.restylable();
+    if (a) return this.restyle(a, patch);
     const style: DrawStyle = { ...this.ui.drawStyle, ...patch };
     if ('fill' in patch && patch.fill === undefined) delete style.fill;
     const tool = this.ui.activeTool;
@@ -571,17 +583,31 @@ export class AppStore {
       drawStyle: style,
       ...(remember ? { toolStyles: { ...this.ui.toolStyles, [tool]: { color: style.color, width: style.width } } } : {}),
     });
-    const sel = this.ui.selectedAnnot;
-    const a = sel && this.history.current.annotations[sel.pageId]?.find((x) => x.id === sel.id);
-    if (a?.type === 'freetext' && a.origin === 'app') {
-      this.updateAnnotation(fitFreeText({ ...a, color: style.color, fontSize: style.fontSize, fontFamily: style.fontFamily }));
-    } else if (a?.type === 'ink') this.updateAnnotation({ ...a, color: style.color, width: style.width });
-    else if (a?.type === 'shape') {
-      const next: ShapeAnnot = { ...a, color: style.color, width: style.width };
-      if (a.line) delete next.fill;
-      else if (style.fill) next.fill = style.fill;
-      else delete next.fill;
-      this.updateAnnotation(next);
+  }
+
+  private restyle(a: Exclude<Annotation, StampAnnot>, patch: Partial<DrawStyle>): void {
+    const color = patch.color ?? a.color;
+    switch (a.type) {
+      case 'freetext': {
+        const next = fitFreeText({ ...a, color, fontSize: patch.fontSize ?? a.fontSize, fontFamily: patch.fontFamily ?? a.fontFamily });
+        if (next !== a && JSON.stringify(next) !== JSON.stringify(a)) this.updateAnnotation(next);
+        return;
+      }
+      case 'ink':
+        if (color !== a.color || (patch.width !== undefined && patch.width !== a.width)) this.updateAnnotation({ ...a, color, width: patch.width ?? a.width });
+        return;
+      case 'shape': {
+        const next: ShapeAnnot = { ...a, color, width: patch.width ?? a.width };
+        if ('fill' in patch) {
+          if (patch.fill && !a.line) next.fill = patch.fill;
+          else delete next.fill;
+        }
+        this.updateAnnotation(next);
+        return;
+      }
+      default:
+        // Highlights, underlines, strikeouts and notes have a colour and nothing else to change here.
+        if (patch.color) this.updateAnnotation({ ...a, color: patch.color });
     }
   }
 
@@ -590,10 +616,7 @@ export class AppStore {
    * recent ones, so switching back is one click.
    */
   chooseColor(color: RGBA): void {
-    const sel = this.ui.selectedAnnot;
-    const a = sel && this.history.current.annotations[sel.pageId]?.find((x) => x.id === sel.id);
-    const restyles = a && a.origin === 'app' && (a.type === 'ink' || a.type === 'shape' || a.type === 'freetext');
-    const previous = restyles ? a.color : this.ui.drawStyle.color;
+    const previous = this.restylable()?.color ?? this.ui.drawStyle.color;
     this.patch({ recentColors: nextRecent(this.ui.recentColors, previous, color) });
     this.setDrawStyle({ color });
   }
@@ -759,8 +782,12 @@ export class AppStore {
     const needsChoice = tool === 'signature' && !this.ui.signatures.some((s) => s.id === this.ui.activeSignature);
     // A tool draws with its own colour and thickness, as it was last set.
     const own = isStyledTool(tool) ? this.ui.toolStyles[tool] : undefined;
+    // Choosing another tool lets go of the selected annotation, so the options box shows that tool's style again
+    // (and a colour picked for it cannot restyle an annotation chosen earlier).
+    const keepSelection = tool === 'select' || tool === this.ui.activeTool;
     this.patch({
       activeTool: tool,
+      ...(keepSelection ? {} : { selectedAnnot: undefined }),
       ...(needsChoice ? { signatureDialog: true } : {}),
       ...(own ? { drawStyle: { ...this.ui.drawStyle, color: own.color, width: own.width } } : {}),
     });

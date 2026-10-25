@@ -127,61 +127,69 @@ function SignatureControls() {
 }
 
 /**
- * What the active tool (or the selected ink, shape or text box) looks like. It always starts with Colour and
+ * What the selected annotation, or else the active tool, looks like. It always starts with Colour and
  * Thickness, in the same place for every tool, greyed out where they do not apply, so nothing moves when you switch
  * tools; then the tool's own controls. Changing them also restyles the selection.
  */
 function ToolOptions() {
   const { store } = useUi();
-  const { doc, ui } = useSnapshot();
+  const { doc, ui, imported } = useSnapshot();
   const hasPages = doc.pages.length > 0;
-  const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id);
-  const styled = sel && sel.origin === 'app' && (sel.type === 'ink' || sel.type === 'shape' || sel.type === 'freetext') ? sel : undefined;
+  const at = ui.selectedAnnot;
+  // The options box follows the selection, if there is one: ours or one that came with the PDF.
+  const sel = at && (doc.annotations[at.pageId]?.find((a) => a.id === at.id) ?? imported[at.pageId]?.find((a) => a.id === at.id));
+  const editable = sel && sel.origin === 'app' && sel.type !== 'stamp';
   const tool = ui.activeTool;
-  const color = styled ? styled.color : ui.drawStyle.color;
-  const width = styled && styled.type !== 'freetext' ? styled.width : ui.drawStyle.width;
-  const colourOn = hasPages && (!!styled || isStyledTool(tool));
-  const thicknessOn = hasPages && (styled ? styled.type !== 'freetext' : hasThickness(tool));
-  const textual = styled ? styled.type === 'freetext' : tool === 'text';
-  const font = styled?.type === 'freetext' ? styled : ui.drawStyle;
-  const hint = styled
-    ? undefined
+  const color = sel && sel.type !== 'stamp' ? sel.color : ui.drawStyle.color;
+  const lined = sel && (sel.type === 'ink' || sel.type === 'shape') ? sel : undefined;
+  const width = lined ? lined.width : ui.drawStyle.width;
+  const colourOn = hasPages && (sel ? !!editable : isStyledTool(tool));
+  const thicknessOn = hasPages && (sel ? !!editable && !!lined : hasThickness(tool));
+  const textual = sel ? editable && sel.type === 'freetext' : tool === 'text';
+  const font = sel?.type === 'freetext' ? sel : ui.drawStyle;
+  const hint = sel
+    ? sel.origin === 'imported'
+      ? 'This came with the PDF: it can be selected, read and deleted, but not restyled.'
+      : undefined
     : tool === 'select'
-      ? 'Select a drawing or a text box to change its colour or thickness.'
+      ? 'Select an annotation to change its colour or thickness.'
       : tool === 'note'
         ? 'Click the page where the note should go.'
         : tool === 'highlight' || tool === 'underline' || tool === 'strikeout'
           ? 'Drag across the document’s text to mark it.'
           : undefined;
 
+  // Three rows of fixed height (colour, thickness, then the tool's own controls or a hint), so selecting something
+  // or switching tools never changes the toolbar's height: the page under it must not move between two clicks.
   return (
     <div className="tool-options">
       <div className="group style" role="group" aria-label="Line style">
-        <div className={colourOn ? 'option' : 'option off'}>
+        <div className={colourOn ? 'option-row' : 'option-row off'} title={colourOn ? undefined : hint}>
           <ColourControl color={color} recent={ui.recentColors} disabled={!colourOn} onChoose={(c) => store.chooseColor(c)} />
         </div>
-        <div className={thicknessOn ? 'option' : 'option off'}>
+        <div className={thicknessOn ? 'option-row' : 'option-row off'} title={thicknessOn ? undefined : hint}>
           <ThicknessControl width={width} color={color} disabled={!thicknessOn} onChange={(w) => store.setDrawStyle({ width: w })} />
         </div>
       </div>
-      <div className="options-divider" aria-hidden="true" />
-      {textual && (
-        <div className="group" role="group" aria-label="Font">
-          {FAMILIES.map((f) => (
-            <button key={f.id} aria-label={`Font ${f.label}`} aria-pressed={font.fontFamily === f.id} onClick={() => store.setDrawStyle({ fontFamily: f.id })}>
-              {f.label}
-            </button>
-          ))}
-          <select aria-label="Font size" value={font.fontSize} onChange={(e) => store.setDrawStyle({ fontSize: Number(e.target.value) })}>
-            {[...FONT_SIZES, ...(FONT_SIZES.includes(font.fontSize as never) ? [] : [font.fontSize])].sort((a, b) => a - b).map((s) => (
-              <option key={s} value={s}>{s} pt</option>
+      <div className="option-row extra">
+        {textual && (
+          <div className="group" role="group" aria-label="Font">
+            {FAMILIES.map((f) => (
+              <button key={f.id} aria-label={`Font ${f.label}`} aria-pressed={font.fontFamily === f.id} onClick={() => store.setDrawStyle({ fontFamily: f.id })}>
+                {f.label}
+              </button>
             ))}
-          </select>
-        </div>
-      )}
-      <StampControls />
-      <SignatureControls />
-      {hint && hasPages && <span className="options-hint">{hint}</span>}
+            <select aria-label="Font size" value={font.fontSize} onChange={(e) => store.setDrawStyle({ fontSize: Number(e.target.value) })}>
+              {[...FONT_SIZES, ...(FONT_SIZES.includes(font.fontSize as never) ? [] : [font.fontSize])].sort((a, b) => a - b).map((s) => (
+                <option key={s} value={s}>{s} pt</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <StampControls />
+        <SignatureControls />
+        {hint && hasPages && <span className="options-hint" title={hint}>{hint}</span>}
+      </div>
     </div>
   );
 }
