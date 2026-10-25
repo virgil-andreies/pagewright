@@ -438,6 +438,8 @@ Every error maps to a user-facing message and a recovery action. Non-fatal notic
 
 **M4 (v1.1 candidates)**: free text in scripts that need shaping or very large fonts (Arabic, Hebrew, Indic, CJK; they become `?` now), encrypted save via qpdf-wasm, outline preservation on merge, editing imported annotations, page dedupe on duplicate, form filling.
 
+**M5 (major future improvement): editing the document's own text.** For PDFs that contain real text (not scans), an "Edit text" tool: click a line, it becomes an editable box over it, and on save the original glyphs are *removed from the page content* and the new text is drawn as page content in a matching font (approach B). Covering the old text with a white box and typing on top (approach A) is ruled out: the old text would stay in the file, readable and searchable. Later, reuse the document's own embedded font where it has the needed glyphs (approach C), with B as the fallback. Scope: one line or simple block at a time, no reflow; refused, with a reason, on scans and on text whose characters cannot be read reliably (scans would need OCR first, a separate project). Risks: mapping a clicked line to exactly the content-stream operators that draw it (text split per word or glyph, TJ arrays, forms XObjects, transforms, subset and CID fonts) and rewriting page content safely. **Start with a spike** on a collection of 10–15 real PDFs from different producers (Word, browsers, LaTeX, InDesign, invoices, forms), measuring how reliably a clicked line can be found and removed alone; build the tool only if that works on most of them. Waiting for the sample collection.
+
 ## 14. Key risks and owners
 
 | Risk | Mitigation | Checked in |

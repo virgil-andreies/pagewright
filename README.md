@@ -79,6 +79,7 @@ The design, the data model and the decisions behind them are in [docs/MODULE_SPE
 
 ## Roadmap
 
+- Editing the document's own text (PDFs with real text, not scans): replace a line in a matching font, with the old text truly removed from the file. A major future improvement; it starts with a feasibility test on real sample PDFs
 - Electron shell (desktop) and Capacitor shell (mobile)
 - Checking the saved annotations in more viewers
 
