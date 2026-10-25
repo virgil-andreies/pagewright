@@ -170,7 +170,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .empty-hint { color: var(--muted); font-size: 13px; }
 
 /* Viewer */
-.viewer { height: 100%; overflow: auto; background: var(--canvas-bg); padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.viewer { height: 100%; overflow: auto; scrollbar-gutter: stable; background: var(--canvas-bg); padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .page-view { position: relative; flex: none; background: #fff; box-shadow: var(--page-shadow); }
 /* Nothing in the viewer is selectable except the page's own text layer (below). Without this, dragging with a tool selects our annotation text, and pressing on a selection starts a drag-and-drop that cancels the gesture. */
 .viewer { -webkit-user-select: none; user-select: none; }
@@ -282,6 +282,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 /* Narrow screens: pages strip above the viewer */
 @media (max-width: 720px) {
+  .viewer { padding: 8px; }
   .body { flex-direction: column; }
   .sidebar { width: auto; height: 120px; border-right: none; border-bottom: 1px solid var(--border); overflow: auto hidden; }
   .page-grid { flex-direction: row; padding: 8px; }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  ChevronDown, Copy, EllipsisVertical, FileDown, FolderOpen, MessageSquare, Redo2, RotateCcw, RotateCw, Save, Trash, Undo2, X, ZoomIn,
+  ChevronDown, Copy, EllipsisVertical, FileDown, FolderOpen, MessageSquare, MoveHorizontal, Redo2, RotateCcw, RotateCw, Save, Trash, Undo2, X, ZoomIn,
   ZoomOut, type LucideIcon,
 } from 'lucide-react';
 import type { RGBA } from '@pagewright/core';
@@ -121,6 +121,10 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
             <IconButton icon={ZoomOut} label="Zoom out" onClick={() => store.setZoom(ui.zoom / 1.25)} disabled={!hasPages} />
             <button onClick={() => store.setZoom(1)} disabled={!hasPages} aria-label="Reset zoom" className="zoom-level">{Math.round(ui.zoom * 100)}%</button>
             <IconButton icon={ZoomIn} label="Zoom in" onClick={() => store.setZoom(ui.zoom * 1.25)} disabled={!hasPages} />
+            <button className={ui.zoomMode === 'fit' ? 'with-icon active' : 'with-icon'} aria-pressed={ui.zoomMode === 'fit'} onClick={() => store.fitWidth()} disabled={!hasPages}>
+              <MoveHorizontal {...ICON} />
+              Fit width
+            </button>
           </div>
         </div>
       </div>

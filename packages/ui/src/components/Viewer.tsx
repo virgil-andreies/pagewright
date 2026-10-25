@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { displaySize, type PageRef } from '@pagewright/core';
 import { geometryOf, useNearViewport, usePageInfo, usePageRender, useSnapshot, useUi } from '../react';
 import { applySelectionMarkup } from '../selection';
@@ -71,6 +71,30 @@ export function Viewer() {
     document.addEventListener('pointerup', onRelease);
     return () => document.removeEventListener('pointerup', onRelease);
   }, [store, pages]);
+
+  // Fitting: in the `auto` and `fit` zoom modes, work the zoom out from the window's width and the widest page, after
+  // every render (pages may have just learned their real size) and whenever the window changes size.
+  const fit = () => {
+    const root = scrollRef.current;
+    const { zoom, zoomMode } = store.getSnapshot().ui;
+    if (!root || zoomMode === 'manual') return;
+    const style = getComputedStyle(root);
+    const room = root.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0');
+    let widest = 0;
+    root.querySelectorAll<HTMLElement>('.page-view').forEach((el) => (widest = Math.max(widest, el.offsetWidth)));
+    if (room <= 0 || widest <= 0) return; // nothing laid out yet (or no layout at all, as in tests)
+    // A pixel of slack: pages are laid out in whole pixels, and rounding up must not add a sideways scrollbar.
+    const fitted = ((room - 1) / widest) * zoom;
+    store.applyFittedZoom(zoomMode === 'fit' ? fitted : Math.min(1, fitted));
+  };
+  useLayoutEffect(fit);
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root || typeof ResizeObserver !== 'function') return;
+    const watch = new ResizeObserver(() => fit());
+    watch.observe(root);
+    return () => watch.disconnect();
+  }, [store]);
 
   // Ctrl + wheel zooms.
   useEffect(() => {

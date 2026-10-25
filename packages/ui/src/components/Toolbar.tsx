@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import {
-  Copy, Ellipse, FileDown, FolderOpen, Highlighter, MessageSquare, MousePointer2, MoveUpRight, PenLine, RectangleHorizontal, Redo2,
+  Copy, Ellipse, FileDown, FolderOpen, Highlighter, MessageSquare, MousePointer2, MoveHorizontal, MoveUpRight, PenLine, RectangleHorizontal, Redo2,
   RotateCcw, RotateCw, Save, Signature, Slash, Stamp, StickyNote, Strikethrough, Trash, Type, Underline, Undo2, ZoomIn, ZoomOut,
   type LucideIcon,
 } from 'lucide-react';
@@ -271,6 +271,15 @@ export function Toolbar() {
           <IconButton icon={ZoomOut} label="Zoom out" onClick={() => store.setZoom(ui.zoom / 1.25)} disabled={!hasPages} />
           <button onClick={() => store.setZoom(1)} disabled={!hasPages} aria-label="Reset zoom" className="zoom-level">{Math.round(ui.zoom * 100)}%</button>
           <IconButton icon={ZoomIn} label="Zoom in" onClick={() => store.setZoom(ui.zoom * 1.25)} disabled={!hasPages} />
+          <IconButton
+            icon={MoveHorizontal}
+            label="Fit width"
+            tip="Fit the page to the window’s width"
+            aria-pressed={ui.zoomMode === 'fit'}
+            className={ui.zoomMode === 'fit' ? 'active' : ''}
+            onClick={() => store.fitWidth()}
+            disabled={!hasPages}
+          />
         </div>
         <LabelButton
           icon={MessageSquare}

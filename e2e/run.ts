@@ -840,6 +840,15 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
       check('the tools sit in a dock at the bottom of the screen', Math.abs(dock.y + dock.height - 844) < 2, JSON.stringify(dock));
       const fits = await s.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
       check('nothing makes the page scroll sideways', fits);
+      // Fitting uses the widest page (the sample's sideways page 2), so no page ever needs sideways scrolling.
+      const widths = await s.page.evaluate(() => {
+        const viewer = document.querySelector('.viewer') as HTMLElement;
+        const style = getComputedStyle(viewer);
+        const room = viewer.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        const widest = Math.max(...[...document.querySelectorAll('.page-view')].map((p) => p.getBoundingClientRect().width));
+        return { room, widest, sideways: viewer.scrollWidth > viewer.clientWidth };
+      });
+      check('pages open fitted to the phone’s width, whole and without sideways scrolling', widths.widest <= widths.room && widths.widest >= widths.room - 4 && !widths.sideways, JSON.stringify(widths));
 
       await s.page.tap('.phone-tools [aria-label="Pen"]');
       // The pen may remember a thickness from earlier scenarios (styles are kept on the device): start from it.
@@ -855,7 +864,7 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
       const chip = await s.page.$eval('.phone-dock button[aria-label^="Thickness"]', (b) => b.getAttribute('aria-label'));
       check('the thickness slider opens from its chip and changes the thickness', chip === `Thickness: ${expected} pt`, `${before} -> ${chip}`);
 
-      await dragOnPage(s.page, [420, 420], [600, 470]);
+      await dragOnPage(s.page, [80, 260], [280, 300]); // the page is fitted to the screen now: about 370 px wide
       check('drawing with the pen from the bottom dock works', (await count(s.page, `${ANNOT} polyline`)) === 1);
 
       await s.page.tap('button[aria-label="More"]');
@@ -923,6 +932,28 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     }, rect);
     // Blue at about half opacity over white paper: clearly bluish, but lighter than solid blue (which has red ~38).
     check('opened again, PDF.js draws it see-through: paper shows through the blue', px[2]! > px[0]! + 40 && px[0]! > 80, JSON.stringify(px));
+  },
+
+  async zoom(s) {
+    console.log('Zoom and fit width');
+    await openPdf(s.page, SAMPLE);
+    const measure = () => s.page.evaluate(() => {
+      const viewer = document.querySelector('.viewer') as HTMLElement;
+      const style = getComputedStyle(viewer);
+      const room = viewer.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const widest = Math.max(...[...document.querySelectorAll('.page-view')].map((p) => p.getBoundingClientRect().width));
+      return { room, widest, sideways: viewer.scrollWidth > viewer.clientWidth, label: document.querySelector('button[aria-label="Reset zoom"]')!.textContent };
+    });
+    const start = await measure();
+    check('on a wide screen pages open at 100%', start.label === '100%', JSON.stringify(start));
+    await clickButton(s.page, 'Fit width');
+    await sleep(300);
+    const fitted = await measure();
+    check('Fit width makes the widest page fill the window, with no sideways scrolling', fitted.widest <= fitted.room && fitted.widest >= fitted.room - 4 && !fitted.sideways, JSON.stringify(fitted));
+    check('and is shown as on', (await s.page.$eval('button[aria-label="Fit width"]', (b) => b.getAttribute('aria-pressed'))) === 'true');
+    await clickButton(s.page, 'Reset zoom');
+    await sleep(200);
+    check('100% brings the pages back to their real size and turns fitting off', (await measure()).label === '100%' && (await s.page.$eval('button[aria-label="Fit width"]', (b) => b.getAttribute('aria-pressed'))) === 'false');
   },
 
   async pages(s) {

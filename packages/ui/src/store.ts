@@ -43,6 +43,12 @@ export interface TextEdit {
 /** UI-only state: not undoable and not part of the document (spec section 10). */
 export interface UiState {
   zoom: number;
+  /**
+   * How the zoom is chosen. `auto`: 100%, or less when that would be wider than the window (the default, so a phone
+   * shows whole pages). `fit`: the page fills the window's width, at any size. `manual`: whatever was chosen.
+   * The viewer works out the zoom for `auto` and `fit` from the window and page sizes, and keeps it up to date.
+   */
+  zoomMode: 'auto' | 'fit' | 'manual';
   activeTool: ToolId;
   /** The style the drawing code uses now: the active tool's colour and thickness, plus font and fill. */
   drawStyle: DrawStyle;
@@ -161,10 +167,11 @@ export interface StoreDeps {
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
+const clampZoom = (z: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
 
 export class AppStore {
   readonly history = new History(emptyDocument());
-  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, toolStyles: DEFAULT_TOOL_STYLES, recentColors: DEFAULT_RECENT_COLORS, stampPreset: DEFAULT_STAMP.name, signatures: [], signatureDialog: false, commentsOpen: false, selection: new Set(), currentPage: 0, notices: [] };
+  private ui: UiState = { zoom: 1, zoomMode: 'auto', activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, toolStyles: DEFAULT_TOOL_STYLES, recentColors: DEFAULT_RECENT_COLORS, stampPreset: DEFAULT_STAMP.name, signatures: [], signatureDialog: false, commentsOpen: false, selection: new Set(), currentPage: 0, notices: [] };
   private snap!: Snapshot;
   private listeners = new Set<() => void>();
   private renderDocs = new Map<SourceId, RenderDoc>();
@@ -831,8 +838,21 @@ export class AppStore {
     this.patch({ currentPage: Math.max(0, Math.min(index, max)) });
   }
 
+  /** A zoom chosen by the person: it stays as chosen, and the page no longer follows the window's width. */
   setZoom(zoom: number): void {
-    this.patch({ zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)) });
+    this.patch({ zoom: clampZoom(zoom), zoomMode: 'manual' });
+  }
+
+  /** Makes the page fill the window's width, and keep doing so when the window changes size. */
+  fitWidth(): void {
+    this.patch({ zoomMode: 'fit' });
+  }
+
+  /** The zoom the viewer worked out for the `auto` or `fit` mode; the mode stays as it is. */
+  applyFittedZoom(zoom: number): void {
+    if (this.ui.zoomMode === 'manual') return;
+    const z = clampZoom(zoom);
+    if (Math.abs(z - this.ui.zoom) > 0.002) this.patch({ zoom: z });
   }
 
   setTool(tool: ToolId): void {
