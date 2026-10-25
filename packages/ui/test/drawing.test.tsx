@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { act, fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { addAnnotation, type Annotation, type InkAnnot, type ShapeAnnot } from '@pagewright/core';
 import { setup } from './helpers';
+import { THICKNESS_STEPS } from '../src/tool-style';
 
 /** The fake pages are 200 x 300 pt and the viewer shows them at 96/72 px per point. */
 const S = 96 / 72;
@@ -252,26 +253,39 @@ describe('selecting, moving and resizing', () => {
   });
 });
 
+/** Opens the colour palette and picks a colour by name. */
+const pickColour = (name: string) => {
+  fireEvent.click(screen.getByRole('button', { name: /^Colour: / }));
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Colours' })).getByRole('button', { name }));
+};
+/** Moves the thickness slider to `pt` and lets go. */
+const setThickness = (pt: number) => fireEvent.change(screen.getByRole('slider', { name: 'Thickness' }), { target: { value: String(THICKNESS_STEPS.indexOf(pt)) } });
+
 describe('line style', () => {
-  it('only shows the style controls when they apply', async () => {
+  it('always shows colour and thickness, greyed out where they do not apply', async () => {
     const t = await ready();
-    expect(screen.queryByLabelText('Line style')).toBeNull();
+    const colour = () => screen.getByRole('button', { name: /^Colour: / }) as HTMLButtonElement;
+    const thickness = () => screen.getByRole('slider', { name: 'Thickness' }) as HTMLInputElement;
     t.tool('Pen');
-    expect(screen.getByLabelText('Line style')).toBeTruthy();
+    expect([colour().disabled, thickness().disabled]).toEqual([false, false]);
     t.tool('Highlight');
-    expect(screen.queryByLabelText('Line style')).toBeNull();
+    expect([colour().disabled, thickness().disabled]).toEqual([false, true]);
+    t.tool('Stamp');
+    expect([colour().disabled, thickness().disabled]).toEqual([true, true]);
+    t.tool('Select');
+    expect([colour().disabled, thickness().disabled]).toEqual([true, true]);
   });
 
-  it('draws new shapes in the chosen colour and width', async () => {
+  it('draws new shapes in the chosen colour and thickness', async () => {
     const t = await ready();
     t.tool('Rectangle');
-    fireEvent.click(screen.getByLabelText('Blue'));
-    fireEvent.click(screen.getByLabelText('Width 8'));
+    pickColour('Blue');
+    setThickness(8);
     t.drag([[20, 200], [120, 150]]);
     const a = t.annots()[0]!;
     expect(a.color).toMatchObject({ r: 0.15, g: 0.4, b: 0.9 });
     expect((a as ShapeAnnot).width).toBe(8);
-    expect(screen.getByLabelText('Blue').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Colour: Blue' })).toBeTruthy();
   });
 
   it('restyles the selected annotation as one undo step', async () => {
@@ -280,10 +294,10 @@ describe('line style', () => {
     t.drag([[20, 200], [120, 150]]);
     t.tool('Select');
     t.drag([[70, 200]]);
-    fireEvent.click(screen.getByLabelText('Green'));
+    pickColour('Green');
     expect(t.annots()[0]!.color).toMatchObject({ r: 0.1, g: 0.6, b: 0.3 });
     expect(t.store.getSnapshot().undoLabel).toBe('Edit annotation');
-    fireEvent.click(screen.getByLabelText('Width 4'));
+    setThickness(4);
     expect((t.annots()[0] as ShapeAnnot).width).toBe(4);
     t.store.undo();
     expect((t.annots()[0] as ShapeAnnot).width).toBe(2);

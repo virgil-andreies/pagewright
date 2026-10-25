@@ -1,4 +1,5 @@
 import type { ImageLoader, StampImage } from './image-loader';
+import { DEFAULT_RECENT_COLORS, DEFAULT_TOOL_STYLES, isStyledTool, nextRecent, type StyledTool, type ToolStyle } from './tool-style';
 import {
   isSignatureArt, strokesToArt, MAX_IMAGE_FILE_BYTES, newImageStampRect, newSignatureRect, DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
   type Annotation, type AnnotComment, type AnnotId, type SignatureArt, type SourceAnnotation, type StampAnnot, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
@@ -36,17 +37,17 @@ export interface TextEdit {
   text: string;
 }
 
-const MARKUP_COLOR: Record<MarkupType, { r: number; g: number; b: number; a: number }> = {
-  highlight: { r: 1, g: 0.9, b: 0, a: 1 },
-  underline: { r: 0.1, g: 0.3, b: 0.9, a: 1 },
-  strikeout: { r: 0.9, g: 0.1, b: 0.1, a: 1 },
-};
 
 /** UI-only state: not undoable and not part of the document (spec section 10). */
 export interface UiState {
   zoom: number;
   activeTool: ToolId;
+  /** The style the drawing code uses now: the active tool's colour and thickness, plus font and fill. */
   drawStyle: DrawStyle;
+  /** Each tool's own colour and thickness, kept while you switch tools. */
+  toolStyles: Readonly<Record<StyledTool, ToolStyle>>;
+  /** The last few colours replaced by another, shared by all tools, newest first. */
+  recentColors: readonly RGBA[];
   /** Which preset stamp the Stamp tool places next (a name from STAMP_PRESETS). */
   stampPreset: string;
   /** A picture the Stamp tool places instead of the preset, once one has been chosen. */
@@ -152,7 +153,7 @@ const MAX_ZOOM = 4;
 
 export class AppStore {
   readonly history = new History(emptyDocument());
-  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, stampPreset: DEFAULT_STAMP.name, signatures: [], signatureDialog: false, commentsOpen: false, selection: new Set(), currentPage: 0, notices: [] };
+  private ui: UiState = { zoom: 1, activeTool: 'select', drawStyle: DEFAULT_DRAW_STYLE, toolStyles: DEFAULT_TOOL_STYLES, recentColors: DEFAULT_RECENT_COLORS, stampPreset: DEFAULT_STAMP.name, signatures: [], signatureDialog: false, commentsOpen: false, selection: new Set(), currentPage: 0, notices: [] };
   private snap!: Snapshot;
   private listeners = new Set<() => void>();
   private renderDocs = new Map<SourceId, RenderDoc>();
@@ -313,7 +314,7 @@ export class AppStore {
     this.history.execute(
       addAnnotation({
         type, id, pageId, author: this.author, createdAt: now, modifiedAt: now,
-        color: MARKUP_COLOR[type], opacity: type === 'highlight' ? 0.5 : 1, origin: 'app', quads,
+        color: this.ui.toolStyles[type].color, opacity: type === 'highlight' ? 0.5 : 1, origin: 'app', quads,
       }),
     );
     return id;
@@ -557,11 +558,19 @@ export class AppStore {
     this.patch({ selectedAnnot: { pageId: edit.pageId, id } });
   }
 
-  /** The drawing style for new ink and shapes; also restyles the selected ink or shape. */
+  /**
+   * The drawing style for what the active tool makes next, which that tool then remembers; also restyles the
+   * selected ink, shape or text box.
+   */
   setDrawStyle(patch: Partial<DrawStyle>): void {
     const style: DrawStyle = { ...this.ui.drawStyle, ...patch };
     if ('fill' in patch && patch.fill === undefined) delete style.fill;
-    this.patch({ drawStyle: style });
+    const tool = this.ui.activeTool;
+    const remember = isStyledTool(tool) && ('color' in patch || 'width' in patch);
+    this.patch({
+      drawStyle: style,
+      ...(remember ? { toolStyles: { ...this.ui.toolStyles, [tool]: { color: style.color, width: style.width } } } : {}),
+    });
     const sel = this.ui.selectedAnnot;
     const a = sel && this.history.current.annotations[sel.pageId]?.find((x) => x.id === sel.id);
     if (a?.type === 'freetext' && a.origin === 'app') {
@@ -574,6 +583,19 @@ export class AppStore {
       else delete next.fill;
       this.updateAnnotation(next);
     }
+  }
+
+  /**
+   * Chooses a colour from the palette, the recent colours or the custom picker. The colour it replaces joins the
+   * recent ones, so switching back is one click.
+   */
+  chooseColor(color: RGBA): void {
+    const sel = this.ui.selectedAnnot;
+    const a = sel && this.history.current.annotations[sel.pageId]?.find((x) => x.id === sel.id);
+    const restyles = a && a.origin === 'app' && (a.type === 'ink' || a.type === 'shape' || a.type === 'freetext');
+    const previous = restyles ? a.color : this.ui.drawStyle.color;
+    this.patch({ recentColors: nextRecent(this.ui.recentColors, previous, color) });
+    this.setDrawStyle({ color });
   }
 
   // ---- Notes and comments ------------------------------------------------------------
@@ -593,7 +615,7 @@ export class AppStore {
     const body = text.trim();
     if (!draft || !body) return undefined;
     const id = this.addDrawn({
-      type: 'note', pageId: draft.pageId, position: draft.position, icon: 'note', color: NOTE_FILL,
+      type: 'note', pageId: draft.pageId, position: draft.position, icon: 'note', color: this.ui.toolStyles.note.color,
       comment: { text: body, replies: [] },
     });
     this.patch({ draftNote: undefined, selectedAnnot: { pageId: draft.pageId, id } });
@@ -674,7 +696,7 @@ export class AppStore {
         pageId: m.pageId,
         annot: {
           type, id: this.newId(), pageId: m.pageId, author: this.author, createdAt: now, modifiedAt: now,
-          color: MARKUP_COLOR[type], opacity: type === 'highlight' ? 0.5 : 1, origin: 'app' as const, quads: m.quads,
+          color: this.ui.toolStyles[type].color, opacity: type === 'highlight' ? 0.5 : 1, origin: 'app' as const, quads: m.quads,
         },
       }));
     if (made.length === 0) return [];
@@ -735,7 +757,13 @@ export class AppStore {
   setTool(tool: ToolId): void {
     // The Signature tool needs a signature to place: if none is chosen yet, offer the dialog to make or pick one.
     const needsChoice = tool === 'signature' && !this.ui.signatures.some((s) => s.id === this.ui.activeSignature);
-    this.patch({ activeTool: tool, ...(needsChoice ? { signatureDialog: true } : {}) });
+    // A tool draws with its own colour and thickness, as it was last set.
+    const own = isStyledTool(tool) ? this.ui.toolStyles[tool] : undefined;
+    this.patch({
+      activeTool: tool,
+      ...(needsChoice ? { signatureDialog: true } : {}),
+      ...(own ? { drawStyle: { ...this.ui.drawStyle, color: own.color, width: own.width } } : {}),
+    });
   }
 
   dismissError(): void {

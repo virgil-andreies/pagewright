@@ -4,11 +4,13 @@ import {
   RotateCcw, RotateCw, Save, Signature, Slash, Stamp, StickyNote, Strikethrough, Trash, Type, Underline, Undo2, ZoomIn, ZoomOut,
   type LucideIcon,
 } from 'lucide-react';
-import { FONT_SIZES, STAMP_PRESETS, type FontFamily, type RGBA } from '@pagewright/core';
+import { FONT_SIZES, STAMP_PRESETS, type FontFamily } from '@pagewright/core';
 import { listThreads } from '../comments';
 import { applySelectionMarkup, hasSelection } from '../selection';
 import { useSnapshot, useUi } from '../react';
 import type { ToolId } from '../store';
+import { hasThickness, isStyledTool } from '../tool-style';
+import { ColourControl, ThicknessControl } from './StyleOptions';
 
 interface Tool { id: ToolId; label: string; key: string; icon: LucideIcon }
 
@@ -68,17 +70,6 @@ function LabelButton({ icon: Icon, children, ...rest }: { icon: LucideIcon; chil
   );
 }
 
-export const SWATCHES: { name: string; color: RGBA }[] = [
-  { name: 'Red', color: { r: 0.86, g: 0.15, b: 0.15, a: 1 } },
-  { name: 'Blue', color: { r: 0.15, g: 0.4, b: 0.9, a: 1 } },
-  { name: 'Green', color: { r: 0.1, g: 0.6, b: 0.3, a: 1 } },
-  { name: 'Orange', color: { r: 0.95, g: 0.55, b: 0.1, a: 1 } },
-  { name: 'Black', color: { r: 0.1, g: 0.1, b: 0.1, a: 1 } },
-];
-export const WIDTHS = [1, 2, 4, 8];
-
-const sameColor = (a: RGBA, b: RGBA) => a.r === b.r && a.g === b.g && a.b === b.b;
-const DRAWING: readonly string[] = ['ink', 'rect', 'ellipse', 'line', 'arrow'];
 const FAMILIES: { id: FontFamily; label: string }[] = [
   { id: 'sans', label: 'Sans' },
   { id: 'serif', label: 'Serif' },
@@ -136,51 +127,61 @@ function SignatureControls() {
 }
 
 /**
- * Colour and line width (or, for text, font and size). Shown while a drawing or text tool is active, or when
- * an ink, shape or text annotation is selected. Changing it also restyles the selection.
+ * What the active tool (or the selected ink, shape or text box) looks like. It always starts with Colour and
+ * Thickness, in the same place for every tool, greyed out where they do not apply, so nothing moves when you switch
+ * tools; then the tool's own controls. Changing them also restyles the selection.
  */
-function StyleControls() {
+function ToolOptions() {
   const { store } = useUi();
   const { doc, ui } = useSnapshot();
+  const hasPages = doc.pages.length > 0;
   const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id);
-  const styled = sel && (sel.type === 'ink' || sel.type === 'shape' || sel.type === 'freetext') ? sel : undefined;
-  const textual = styled ? styled.type === 'freetext' : ui.activeTool === 'text';
-  if (!styled && !DRAWING.includes(ui.activeTool) && ui.activeTool !== 'text') return null;
-  const current = styled ?? ui.drawStyle;
+  const styled = sel && sel.origin === 'app' && (sel.type === 'ink' || sel.type === 'shape' || sel.type === 'freetext') ? sel : undefined;
+  const tool = ui.activeTool;
+  const color = styled ? styled.color : ui.drawStyle.color;
+  const width = styled && styled.type !== 'freetext' ? styled.width : ui.drawStyle.width;
+  const colourOn = hasPages && (!!styled || isStyledTool(tool));
+  const thicknessOn = hasPages && (styled ? styled.type !== 'freetext' : hasThickness(tool));
+  const textual = styled ? styled.type === 'freetext' : tool === 'text';
   const font = styled?.type === 'freetext' ? styled : ui.drawStyle;
+  const hint = styled
+    ? undefined
+    : tool === 'select'
+      ? 'Select a drawing or a text box to change its colour or thickness.'
+      : tool === 'note'
+        ? 'Click the page where the note should go.'
+        : tool === 'highlight' || tool === 'underline' || tool === 'strikeout'
+          ? 'Drag across the document’s text to mark it.'
+          : undefined;
 
   return (
-    <div className="group style" aria-label="Line style">
-      {SWATCHES.map((s) => (
-        <button
-          key={s.name}
-          className="swatch"
-          style={{ background: `rgb(${s.color.r * 255} ${s.color.g * 255} ${s.color.b * 255})` }}
-          aria-label={s.name}
-          aria-pressed={sameColor(current.color, s.color)}
-          onClick={() => store.setDrawStyle({ color: s.color })}
-        />
-      ))}
-      {textual
-        ? (
-          <>
-            {FAMILIES.map((f) => (
-              <button key={f.id} aria-label={`Font ${f.label}`} aria-pressed={font.fontFamily === f.id} onClick={() => store.setDrawStyle({ fontFamily: f.id })}>
-                {f.label}
-              </button>
+    <div className="tool-options">
+      <div className="group style" role="group" aria-label="Line style">
+        <div className={colourOn ? 'option' : 'option off'}>
+          <ColourControl color={color} recent={ui.recentColors} disabled={!colourOn} onChoose={(c) => store.chooseColor(c)} />
+        </div>
+        <div className={thicknessOn ? 'option' : 'option off'}>
+          <ThicknessControl width={width} color={color} disabled={!thicknessOn} onChange={(w) => store.setDrawStyle({ width: w })} />
+        </div>
+      </div>
+      <div className="options-divider" aria-hidden="true" />
+      {textual && (
+        <div className="group" role="group" aria-label="Font">
+          {FAMILIES.map((f) => (
+            <button key={f.id} aria-label={`Font ${f.label}`} aria-pressed={font.fontFamily === f.id} onClick={() => store.setDrawStyle({ fontFamily: f.id })}>
+              {f.label}
+            </button>
+          ))}
+          <select aria-label="Font size" value={font.fontSize} onChange={(e) => store.setDrawStyle({ fontSize: Number(e.target.value) })}>
+            {[...FONT_SIZES, ...(FONT_SIZES.includes(font.fontSize as never) ? [] : [font.fontSize])].sort((a, b) => a - b).map((s) => (
+              <option key={s} value={s}>{s} pt</option>
             ))}
-            <select aria-label="Font size" value={font.fontSize} onChange={(e) => store.setDrawStyle({ fontSize: Number(e.target.value) })}>
-              {[...FONT_SIZES, ...(FONT_SIZES.includes(font.fontSize as never) ? [] : [font.fontSize])].sort((a, b) => a - b).map((s) => (
-                <option key={s} value={s}>{s} pt</option>
-              ))}
-            </select>
-          </>
-        )
-        : WIDTHS.map((w) => (
-          <button key={w} aria-label={`Width ${w}`} aria-pressed={'width' in current && current.width === w} onClick={() => store.setDrawStyle({ width: w })}>
-            {w}
-          </button>
-        ))}
+          </select>
+        </div>
+      )}
+      <StampControls />
+      <SignatureControls />
+      {hint && hasPages && <span className="options-hint">{hint}</span>}
     </div>
   );
 }
@@ -273,11 +274,7 @@ export function Toolbar() {
             </div>
           ))}
         </div>
-        <div className="tool-options">
-          <StyleControls />
-          <StampControls />
-          <SignatureControls />
-        </div>
+        <ToolOptions />
       </div>
     </div>
   );

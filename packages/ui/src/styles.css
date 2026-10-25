@@ -67,8 +67,28 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
 .toolbar .tile .key { position: absolute; top: 3px; right: 6px; font-size: 10px; color: var(--muted); }
 .toolbar .tile.active .key { color: var(--accent-strong); }
 .tool-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; flex: 1 1 260px; min-width: 0; }
-.toolbar .swatch { width: 22px; height: 22px; padding: 0; border-radius: 50%; }
-.toolbar .swatch[aria-pressed='true'], .toolbar .style button[aria-pressed='true'] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.toolbar .group[aria-label='Font'] button[aria-pressed='true'] { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The options box: Colour and Thickness first, always in the same place; greyed out where they do not apply. */
+.toolbar .style { gap: 0 16px; flex-wrap: wrap; }
+.toolbar .option { display: flex; align-items: center; }
+.toolbar .option.off { opacity: 0.4; }
+.toolbar .option-label { font-size: 13px; color: var(--muted); margin-right: 6px; }
+.colour-control { position: relative; display: flex; align-items: center; gap: 2px; }
+.toolbar .swatch-button { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; color: var(--muted); }
+.swatch-dot { display: block; width: 22px; height: 22px; border-radius: 50%; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25); }
+.toolbar .swatch-dot-button, .palette .swatch-dot-button { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-color: transparent; background: transparent; border-radius: 50%; }
+.swatch-dot-button:hover:not(:disabled) .swatch-dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--border); }
+.palette .swatch-dot-button[aria-pressed='true'] .swatch-dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
+.palette { position: absolute; top: calc(100% + 6px); left: 40px; z-index: 30; width: 252px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.palette-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; }
+.palette-custom { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--border); padding: 8px 4px 0; }
+.palette-custom input { width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.thickness-control { display: flex; align-items: center; gap: 8px; }
+.thickness-control input[type='range'] { width: 150px; height: 36px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.thickness-control input[type='range']:disabled { cursor: default; }
+.thickness-value { min-width: 44px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.options-divider { width: 1px; align-self: stretch; background: var(--border); }
+.options-hint { font-size: 13px; color: var(--muted); }
 .toolbar .status { margin-left: auto; color: var(--muted); font-size: 13px; }
 @media (max-width: 1200px) {
   /* Narrower windows: Comments keeps its icon and count, and its name moves to the tooltip. */

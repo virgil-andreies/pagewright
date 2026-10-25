@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TEXT_WIDTH, freeTextHeight, textWidth, type Annotation, type FreeTextAnnot } from '@pagewright/core';
 import { setup } from './helpers';
@@ -278,15 +278,15 @@ describe('moving and resizing text', () => {
 });
 
 describe('text style controls', () => {
-  it('appear for the Text tool and offer fonts and sizes instead of line widths', async () => {
+  it('appear for the Text tool and offer fonts and sizes; thickness does not apply to text', async () => {
     const t = await ready();
     t.tool('Text');
     expect(screen.getByLabelText('Font Sans')).toBeTruthy();
     expect(screen.getByLabelText('Font size')).toBeTruthy();
-    expect(screen.queryByLabelText('Width 4')).toBeNull();
+    expect((screen.getByRole('slider', { name: 'Thickness' }) as HTMLInputElement).disabled).toBe(true);
     t.tool('Rectangle');
     expect(screen.queryByLabelText('Font Sans')).toBeNull();
-    expect(screen.getByLabelText('Width 4')).toBeTruthy();
+    expect((screen.getByRole('slider', { name: 'Thickness' }) as HTMLInputElement).disabled).toBe(false);
   });
 
   it('start the next text box in the chosen font, size and colour', async () => {
@@ -294,7 +294,8 @@ describe('text style controls', () => {
     t.tool('Text');
     fireEvent.click(screen.getByLabelText('Font Serif'));
     fireEvent.change(screen.getByLabelText('Font size'), { target: { value: '24' } });
-    fireEvent.click(screen.getByLabelText('Blue'));
+    fireEvent.click(screen.getByRole('button', { name: /^Colour: / }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Colours' })).getByRole('button', { name: 'Blue' }));
     t.click(30, 250);
     expect(t.box().style.fontFamily).toMatch(/Times/);
     expect(t.box().style.fontSize).toBe(`${24 * S}px`);

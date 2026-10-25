@@ -729,6 +729,52 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await s.page.screenshot({ path: resolve(SHOTS, 'draw.png') });
   },
 
+  async toolOptions(s) {
+    console.log('Colour and thickness');
+    await openPdf(s.page, SAMPLE);
+    const colourLabel = () => s.page.$eval('button[aria-label^="Colour: "]', (b) => b.getAttribute('aria-label'));
+    const thickness = () => s.page.$eval('input[aria-label="Thickness"], .thickness-control input', (i) => i.getAttribute('aria-valuetext'));
+    await chooseTool(s.page, 'Stamp');
+    const greyed = await s.page.$eval('button[aria-label^="Colour: "]', (b) => (b as HTMLButtonElement).disabled);
+    check('with Stamp, colour and thickness are there but greyed out', greyed);
+
+    await chooseTool(s.page, 'Pen');
+    check('the pen starts red at 2 pt', (await colourLabel()) === 'Colour: Red' && (await thickness()) === '2 pt', `${await colourLabel()} ${await thickness()}`);
+    // The palette, with the real mouse.
+    await (await s.page.$('button[aria-label^="Colour: "]'))!.click();
+    await s.page.waitForSelector('[role=dialog][aria-label=Colours]');
+    const box = (await (await s.page.$('[role=dialog][aria-label=Colours]'))!.boundingBox())!;
+    check('the palette opens below the button, fully on screen', box.y > 100 && box.x >= 0 && box.x + box.width <= 1360, JSON.stringify(box));
+    await s.page.screenshot({ path: resolve(SHOTS, 'palette.png') });
+    await (await s.page.$('[role=dialog][aria-label=Colours] button[aria-label="Purple"]'))!.click();
+    await sleep(100);
+    check('picking a colour closes the palette and shows it on the button', (await colourLabel()) === 'Colour: Purple' && !(await s.page.$('[role=dialog][aria-label=Colours]')));
+
+    // The slider, dragged with the real mouse: the label follows, the value is applied on release.
+    const slider = (await (await s.page.$('.thickness-control input'))!.boundingBox())!;
+    await s.page.mouse.move(slider.x + 4, slider.y + slider.height / 2);
+    await s.page.mouse.down();
+    await s.page.mouse.move(slider.x + slider.width * 0.75, slider.y + slider.height / 2, { steps: 8 });
+    const during = await thickness();
+    await s.page.mouse.up();
+    const picked = Number((await thickness())!.replace(' pt', ''));
+    check('dragging the slider shows the thickness as it moves', !!during && during !== '2 pt', `${during}`);
+    check('three quarters along is about 5–7 pt (the steps are fine at the thin end)', picked >= 5 && picked <= 7, `${picked}`);
+
+    await dragOnPage(s.page, [150, 620], [400, 680]);
+    const stroke = await s.page.$eval(`${ANNOT} polyline`, (p) => ({ w: Number(p.getAttribute('stroke-width')), c: p.getAttribute('stroke') }));
+    check('the pen draws in that colour and thickness', /rgb\(1[45]\d/.test(stroke.c ?? '') && stroke.w > 5, JSON.stringify(stroke));
+
+    // Each tool keeps its own; the recent colours are shared.
+    await chooseTool(s.page, 'Rectangle');
+    check('the rectangle still has its own red and 2 pt', (await colourLabel()) === 'Colour: Red' && (await thickness()) === '2 pt');
+    const recent = await s.page.$$eval('button[aria-label^="Recent colour: "]', (b) => b.map((x) => x.getAttribute('aria-label')!.replace('Recent colour: ', '')));
+    check('the recent colours are shared: the pen’s replaced red is there, left out here because it is the current one', JSON.stringify(recent) === JSON.stringify(['Blue', 'Black']), JSON.stringify(recent));
+    await chooseTool(s.page, 'Pen');
+    check('back on the pen: purple and its thickness again', (await colourLabel()) === 'Colour: Purple' && (await thickness()) === `${picked} pt`);
+    await s.page.screenshot({ path: resolve(SHOTS, 'tool-options.png'), clip: { x: 0, y: 0, width: 1360, height: 200 } });
+  },
+
   async pages(s) {
     console.log('Page grid');
     await openPdf(s.page, SAMPLE);
