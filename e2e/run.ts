@@ -828,6 +828,56 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     check('after reloading the page, the pen keeps its colour and thickness', (await colourLabel()) === 'Colour: Purple' && (await thickness()) === `${picked} pt`, `${await colourLabel()} ${await thickness()}`);
   },
 
+  async phone(s) {
+    console.log('Phone layout');
+    const wide = s.page.viewport()!;
+    await s.page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    try {
+      await openPdf(s.page, SAMPLE);
+      const top = await s.page.$eval('.toolbar', (e) => e.getBoundingClientRect().height);
+      check('the top bar is one slim row', top < 60, `${top}px`);
+      const dock = (await (await s.page.$('.phone-dock'))!.boundingBox())!;
+      check('the tools sit in a dock at the bottom of the screen', Math.abs(dock.y + dock.height - 844) < 2, JSON.stringify(dock));
+      const fits = await s.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+      check('nothing makes the page scroll sideways', fits);
+
+      await s.page.tap('.phone-tools [aria-label="Pen"]');
+      // The pen may remember a thickness from earlier scenarios (styles are kept on the device): start from it.
+      const steps = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12];
+      const before = Number((await s.page.$eval('.phone-dock button[aria-label^="Thickness"]', (b) => b.getAttribute('aria-label')))!.replace(/[^\d.]/g, ''));
+      const expected = steps[Math.min(steps.indexOf(before) + 2, steps.length - 1)];
+      await s.page.tap('.phone-dock button[aria-label^="Thickness"]');
+      await s.page.waitForSelector('.phone-dock [role=dialog][aria-label=Thickness]');
+      await s.page.focus('.phone-dock [role=dialog] input[type=range]');
+      await s.page.keyboard.press('ArrowRight');
+      await s.page.keyboard.press('ArrowRight');
+      await sleep(150);
+      const chip = await s.page.$eval('.phone-dock button[aria-label^="Thickness"]', (b) => b.getAttribute('aria-label'));
+      check('the thickness slider opens from its chip and changes the thickness', chip === `Thickness: ${expected} pt`, `${before} -> ${chip}`);
+
+      await dragOnPage(s.page, [420, 420], [600, 470]);
+      check('drawing with the pen from the bottom dock works', (await count(s.page, `${ANNOT} polyline`)) === 1);
+
+      await s.page.tap('button[aria-label="More"]');
+      await s.page.waitForSelector('[role=dialog][aria-label=More]');
+      const caption = await s.page.$eval('[role=dialog][aria-label=More] .sheet-caption', (e) => e.textContent);
+      check('More offers the page actions for the page on screen', caption === 'This page', `${caption}`);
+      await s.page.evaluate(() => ([...document.querySelectorAll('[role=dialog][aria-label=More] button')].find((b) => b.textContent === 'Rotate right') as HTMLButtonElement).click());
+      await sleep(300);
+      check('and closes after one is chosen', !(await s.page.$('[role=dialog][aria-label=More]')));
+      await s.page.screenshot({ path: resolve(SHOTS, 'phone.png') });
+
+      await s.page.tap('.toolbar button.primary'); // Save
+      const file = await waitForDownload();
+      const saved = await PDFDocument.load(readFileSync(file));
+      check('the saved file has the rotated page and the pen stroke', saved.getPage(0).getRotation().angle % 360 !== 0 && JSON.stringify(saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).asArray().map((_, i) => (saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).lookup(i, PDFDict).lookup(PDFName.of('Subtype')) as PDFName).decodeText())).includes('Ink'));
+    } finally {
+      await s.page.setViewport(wide);
+    }
+    await sleep(200);
+    check('back on a wide screen, the desktop toolbar returns', !!(await s.page.$('button[aria-label="Rotate left"]')) && !(await s.page.$('.phone-dock')));
+  },
+
   async pages(s) {
     console.log('Page grid');
     await openPdf(s.page, SAMPLE);

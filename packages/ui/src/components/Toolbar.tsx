@@ -15,7 +15,7 @@ import { ColourControl, ThicknessControl } from './StyleOptions';
 interface Tool { id: ToolId; label: string; key: string; icon: LucideIcon }
 
 /** The tools, in groups with a caption each. Icons are Lucide's (ISC licence), drawn in the text colour. */
-const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
+export const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
   { name: 'Select', tools: [{ id: 'select', label: 'Select', key: 'V', icon: MousePointer2 }] },
   {
     name: 'Mark text',
@@ -46,13 +46,13 @@ const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
   },
 ];
 
-const ICON = { size: 20, strokeWidth: 1.8, 'aria-hidden': true } as const;
+export const ICON = { size: 20, strokeWidth: 1.8, 'aria-hidden': true } as const;
 
 /**
  * A button shown as an icon only. Its name (what screen readers say, and what tests find it by) is `label`;
  * `tip` is the tooltip, which can say more, such as the shortcut.
  */
-function IconButton({ icon: Icon, label, tip, ...rest }: { icon: LucideIcon; label: string; tip?: string } & ButtonHTMLAttributes<HTMLButtonElement>) {
+export function IconButton({ icon: Icon, label, tip, ...rest }: { icon: LucideIcon; label: string; tip?: string } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button {...rest} className={`icon tip ${rest.className ?? ''}`.trim()} aria-label={label} data-tip={tip ?? label}>
       <Icon {...ICON} />
@@ -61,7 +61,7 @@ function IconButton({ icon: Icon, label, tip, ...rest }: { icon: LucideIcon; lab
 }
 
 /** A button with an icon before its text. */
-function LabelButton({ icon: Icon, children, ...rest }: { icon: LucideIcon; children: ReactNode } & ButtonHTMLAttributes<HTMLButtonElement>) {
+export function LabelButton({ icon: Icon, children, ...rest }: { icon: LucideIcon; children: ReactNode } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button {...rest} className={`with-icon ${rest.className ?? ''}`.trim()}>
       <Icon {...ICON} />
@@ -80,7 +80,7 @@ const FAMILIES: { id: FontFamily; label: string }[] = [
 /** The select's value for a chosen picture: not a preset name, which are plain words. */
 const IMAGE_OPTION = ':picture';
 
-function StampControls() {
+export function StampControls() {
   const { store } = useUi();
   const { doc, ui } = useSnapshot();
   const sel = ui.selectedAnnot && doc.annotations[ui.selectedAnnot.pageId]?.find((a) => a.id === ui.selectedAnnot!.id);
@@ -107,7 +107,7 @@ function StampControls() {
 }
 
 /** Which saved signature the Sign tool places, and a way to make or remove them. */
-function SignatureControls() {
+export function SignatureControls() {
   const { store } = useUi();
   const { ui } = useSnapshot();
   if (ui.activeTool !== 'signature') return null;
@@ -127,16 +127,14 @@ function SignatureControls() {
 }
 
 /**
- * What the selected annotation, or else the active tool, looks like. It always starts with Colour and
- * Thickness, in the same place for every tool, greyed out where they do not apply, so nothing moves when you switch
- * tools; then the tool's own controls. Changing them also restyles the selection.
+ * What the options show: the selected annotation's style if there is one (ours, or one that came with the PDF),
+ * else the active tool's, with which controls apply and a hint when they do not. Shared by the desktop toolbar and
+ * the phone dock.
  */
-function ToolOptions() {
-  const { store } = useUi();
+export function useToolOptions() {
   const { doc, ui, imported } = useSnapshot();
   const hasPages = doc.pages.length > 0;
   const at = ui.selectedAnnot;
-  // The options box follows the selection, if there is one: ours or one that came with the PDF.
   const sel = at && (doc.annotations[at.pageId]?.find((a) => a.id === at.id) ?? imported[at.pageId]?.find((a) => a.id === at.id));
   const editable = sel && sel.origin === 'app' && sel.type !== 'stamp';
   const tool = ui.activeTool;
@@ -145,7 +143,7 @@ function ToolOptions() {
   const width = lined ? lined.width : ui.drawStyle.width;
   const colourOn = hasPages && (sel ? !!editable : isStyledTool(tool));
   const thicknessOn = hasPages && (sel ? !!editable && !!lined : hasThickness(tool));
-  const textual = sel ? editable && sel.type === 'freetext' : tool === 'text';
+  const textual = !!(sel ? editable && sel.type === 'freetext' : tool === 'text');
   const font = sel?.type === 'freetext' ? sel : ui.drawStyle;
   const hint = sel
     ? sel.origin === 'imported'
@@ -158,44 +156,70 @@ function ToolOptions() {
         : tool === 'highlight' || tool === 'underline' || tool === 'strikeout'
           ? 'Drag across the document’s text to mark it.'
           : undefined;
+  return { hasPages, color, width, colourOn, thicknessOn, textual, font, hint, recent: ui.recentColors };
+}
+
+/** The font and size of the selected text box, or of the next one. */
+export function FontControls({ font }: { font: { fontFamily: FontFamily; fontSize: number } }) {
+  const { store } = useUi();
+  return (
+    <div className="group" role="group" aria-label="Font">
+      {FAMILIES.map((f) => (
+        <button key={f.id} aria-label={`Font ${f.label}`} aria-pressed={font.fontFamily === f.id} onClick={() => store.setDrawStyle({ fontFamily: f.id })}>
+          {f.label}
+        </button>
+      ))}
+      <select aria-label="Font size" value={font.fontSize} onChange={(e) => store.setDrawStyle({ fontSize: Number(e.target.value) })}>
+        {[...FONT_SIZES, ...(FONT_SIZES.includes(font.fontSize as never) ? [] : [font.fontSize])].sort((a, b) => a - b).map((s) => (
+          <option key={s} value={s}>{s} pt</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/** Chooses a tool; a markup tool chosen while text is selected marks that text straight away. */
+export function usePickTool() {
+  const { store, pages } = useUi();
+  return (id: ToolId) => {
+    store.setTool(id);
+    if ((id === 'highlight' || id === 'underline' || id === 'strikeout') && hasSelection()) applySelectionMarkup(store, pages, id);
+  };
+}
+
+/**
+ * What the selected annotation, or else the active tool, looks like. It always starts with Colour and
+ * Thickness, in the same place for every tool, greyed out where they do not apply, so nothing moves when you switch
+ * tools; then the tool's own controls. Changing them also restyles the selection.
+ */
+function ToolOptions() {
+  const { store } = useUi();
+  const o = useToolOptions();
 
   // Three rows of fixed height (colour, thickness, then the tool's own controls or a hint), so selecting something
   // or switching tools never changes the toolbar's height: the page under it must not move between two clicks.
   return (
     <div className="tool-options">
       <div className="group style" role="group" aria-label="Line style">
-        <div className={colourOn ? 'option-row' : 'option-row off'} title={colourOn ? undefined : hint}>
-          <ColourControl color={color} recent={ui.recentColors} disabled={!colourOn} onChoose={(c) => store.chooseColor(c)} />
+        <div className={o.colourOn ? 'option-row' : 'option-row off'} title={o.colourOn ? undefined : o.hint}>
+          <ColourControl color={o.color} recent={o.recent} disabled={!o.colourOn} onChoose={(c) => store.chooseColor(c)} />
         </div>
-        <div className={thicknessOn ? 'option-row' : 'option-row off'} title={thicknessOn ? undefined : hint}>
-          <ThicknessControl width={width} color={color} disabled={!thicknessOn} onChange={(w) => store.setDrawStyle({ width: w })} />
+        <div className={o.thicknessOn ? 'option-row' : 'option-row off'} title={o.thicknessOn ? undefined : o.hint}>
+          <ThicknessControl width={o.width} color={o.color} disabled={!o.thicknessOn} onChange={(w) => store.setDrawStyle({ width: w })} />
         </div>
       </div>
       <div className="option-row extra">
-        {textual && (
-          <div className="group" role="group" aria-label="Font">
-            {FAMILIES.map((f) => (
-              <button key={f.id} aria-label={`Font ${f.label}`} aria-pressed={font.fontFamily === f.id} onClick={() => store.setDrawStyle({ fontFamily: f.id })}>
-                {f.label}
-              </button>
-            ))}
-            <select aria-label="Font size" value={font.fontSize} onChange={(e) => store.setDrawStyle({ fontSize: Number(e.target.value) })}>
-              {[...FONT_SIZES, ...(FONT_SIZES.includes(font.fontSize as never) ? [] : [font.fontSize])].sort((a, b) => a - b).map((s) => (
-                <option key={s} value={s}>{s} pt</option>
-              ))}
-            </select>
-          </div>
-        )}
+        {o.textual && <FontControls font={o.font} />}
         <StampControls />
         <SignatureControls />
-        {hint && hasPages && <span className="options-hint" title={hint}>{hint}</span>}
+        {o.hint && o.hasPages && <span className="options-hint" title={o.hint}>{o.hint}</span>}
       </div>
     </div>
   );
 }
 
 export function Toolbar() {
-  const { store, pages } = useUi();
+  const { store } = useUi();
   const { doc, ui, imported, canUndo, canRedo, undoLabel, redoLabel } = useSnapshot();
   const hasPages = doc.pages.length > 0;
   const hasSel = ui.selection.size > 0;
@@ -203,11 +227,7 @@ export function Toolbar() {
   const threadCount = listThreads(doc, imported).length;
 
   const open = async () => store.addFiles(await store.platform.fs.pickFiles({ multiple: true, accept: ['.pdf', 'application/pdf'] }));
-  const pick = (id: ToolId) => {
-    store.setTool(id);
-    // Choosing a markup tool while text is selected marks that selection straight away.
-    if ((id === 'highlight' || id === 'underline' || id === 'strikeout') && hasSelection()) applySelectionMarkup(store, pages, id);
-  };
+  const pick = usePickTool();
 
   return (
     <div className="toolbar" role="toolbar" aria-label="Main">

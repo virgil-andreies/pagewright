@@ -19,6 +19,7 @@ A PDF app for organising pages and marking up documents. It runs in the browser 
 - Typed visual signatures in four handwriting styles, or drawn by hand with a mouse, finger or pen, kept on your device and saved as vector shapes so they look the same in every viewer (they are pictures of a name, not digital signatures)
 - Image stamps from PNG or JPEG pictures (a logo, a scanned signature): turned upright, scaled down to a sensible size, and transparency kept
 - Notes and comments, with replies and a comments panel
+- On a phone: a slim top bar, and the tools and their options at the bottom, within reach of a thumb
 - Annotations that were already in a PDF can be selected, read and deleted (not edited)
 
 **Saving**

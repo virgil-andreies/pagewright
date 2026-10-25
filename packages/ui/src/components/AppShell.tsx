@@ -5,6 +5,7 @@ import type { AppStore, ToolId } from '../store';
 import { CommentsPanel } from './CommentsPanel';
 import { Dialogs } from './Dialogs';
 import { PageGrid } from './PageGrid';
+import { PHONE_QUERY, PhoneDock, PhoneTopBar, useMediaQuery } from './PhoneToolbar';
 import { Toolbar } from './Toolbar';
 import { Viewer } from './Viewer';
 import '../styles.css';
@@ -56,12 +57,14 @@ function useShortcuts(store: AppStore) {
 function Shell({ store }: { store: AppStore }) {
   useShortcuts(store);
   const commentsOpen = useSnapshot().ui.commentsOpen;
+  // A phone gets a slim bar at the top and the tools at the bottom, within reach of a thumb.
+  const phone = useMediaQuery(PHONE_QUERY);
   // Files opened via the OS or drag-and-drop.
   useEffect(() => store.platform.fs.onOpenRequest((files) => void store.addFiles(files)), [store]);
 
   return (
-    <div className="app-shell">
-      <Toolbar />
+    <div className={phone ? 'app-shell phone' : 'app-shell'}>
+      {phone ? <PhoneTopBar /> : <Toolbar />}
       <div className="body">
         <aside className="sidebar" aria-label="Pages">
           <PageGrid />
@@ -71,6 +74,7 @@ function Shell({ store }: { store: AppStore }) {
         </main>
         {commentsOpen && <CommentsPanel />}
       </div>
+      {phone && <PhoneDock />}
       <Dialogs />
     </div>
   );

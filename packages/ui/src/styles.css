@@ -98,16 +98,43 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans
   /* Narrower windows: Comments keeps its icon and count, and its name moves to the tooltip. */
   .toolbar button.with-icon:has(.badge) .label, .toolbar button.with-icon[aria-label='Comments'] .label { display: none; }
 }
-@media (max-width: 720px) {
-  /* On a phone the tiles shrink to icons with small labels, stay on one row that scrolls sideways, and the captions go. */
-  .toolbar .tile { width: 54px; height: 48px; font-size: 10px; flex: none; }
-  .toolbar .tile .key, .toolbar .caption { display: none; }
-  .tool-groups { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; max-width: 100%; }
-  .tool-group { padding-right: 6px; flex: none; }
-  .toolbar .status { flex-basis: 100%; order: 10; margin-left: 0; font-size: 12px; }
-  .toolbar .option-row { height: auto; min-height: 32px; flex-wrap: wrap; }
-  .toolbar .option-row.extra { white-space: normal; }
-}
+/* Phones (720px and narrower) get their own layout: a slim top bar, and the tools and options in a dock at the bottom. */
+.toolbar.phone-top { flex-direction: row; align-items: center; gap: 2px; padding: 4px 8px; }
+.toolbar.phone-top button.icon { position: relative; width: 44px; height: 44px; }
+.toolbar.phone-top button.with-icon { height: 44px; }
+.phone-divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+.phone-spacer { flex: 1 1 0; }
+.badge.corner { position: absolute; top: 4px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; }
+.sheet-backdrop { position: fixed; inset: 0; z-index: 40; background: rgb(0 0 0 / 0.3); }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; max-height: 80vh; overflow-y: auto; background: var(--surface); color: var(--text); border-radius: 16px 16px 0 0; box-shadow: 0 -8px 24px rgb(0 0 0 / 0.2); padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; }
+.sheet-status { font-size: 13px; color: var(--muted); }
+.sheet-section { display: flex; flex-direction: column; border-top: 1px solid var(--border); padding-top: 6px; }
+.sheet-caption { font-size: 12px; font-weight: 600; color: var(--muted); padding: 4px; }
+.sheet .sheet-row { display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 4px; border: 0; background: transparent; font-size: 15px; text-align: left; }
+.sheet .sheet-row.danger { color: var(--danger); }
+.sheet-zoom { display: flex; align-items: center; gap: 8px; }
+.phone-dock { position: relative; flex: none; display: flex; flex-direction: column; gap: 4px; padding: 4px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -2px 8px rgb(0 0 0 / 0.06); }
+.phone-options { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 44px; }
+.phone-options .colour-control .option-label { display: none; }
+.phone-options .chip-wrap { display: flex; align-items: center; }
+.phone-options .chip-wrap.off { opacity: 0.4; }
+.phone-dock .swatch-button, .phone-dock .chip { height: 40px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; border-radius: 20px; font-size: 13px; color: var(--text); }
+.phone-dock .swatch-button { color: var(--muted); }
+.phone-dock .swatch-dot-button { width: 40px; height: 40px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-color: transparent; background: transparent; border-radius: 50%; }
+.phone-dock .palette { top: auto; bottom: calc(100% + 6px); left: 0; }
+.phone-dock .group { display: flex; gap: 4px; align-items: center; }
+.phone-dock select, .phone-dock .group button { height: 40px; }
+.phone-dock .group[aria-label='Font'] button[aria-pressed='true'] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.thickness-pop { position: absolute; left: 8px; right: 8px; bottom: calc(100% + 6px); z-index: 30; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); padding: 6px 12px; }
+.phone-options > .chip-wrap { position: static; }
+.thickness-pop .thickness-control input[type='range'] { flex: 1 1 0; width: auto; height: 40px; }
+.phone-tools { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; border-top: 1px solid var(--border); padding-top: 4px; }
+.phone-tools .tile { flex: none; width: 56px; height: 52px; padding: 0; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 10px; border-color: transparent; background: transparent; border-radius: 10px; }
+.phone-tools .tile.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+.page-pill { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 16px; background: rgb(28 31 38 / 0.85); color: #ffffff; font-size: 13px; white-space: nowrap; }
+.page-pill button { height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; }
+.unsaved-dot { width: 6px; height: 6px; border-radius: 3px; background: #fbbf24; }
 button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
 button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.45; cursor: default; }
@@ -234,12 +261,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .row-actions button:hover { color: var(--accent); }
 .replies { margin: 6px 0 0 8px; border-left: 2px solid var(--border); padding-left: 8px; }
 .reply { margin-bottom: 6px; }
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .comments { width: auto; height: 45%; border-left: none; border-top: 1px solid var(--border); }
 }
 
 /* Narrow screens: pages strip above the viewer */
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .body { flex-direction: column; }
   .sidebar { width: auto; height: 120px; border-right: none; border-bottom: 1px solid var(--border); overflow: auto hidden; }
   .page-grid { flex-direction: row; padding: 8px; }
