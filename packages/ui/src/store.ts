@@ -1,5 +1,5 @@
 import type { ImageLoader, StampImage } from './image-loader';
-import { DEFAULT_RECENT_COLORS, DEFAULT_TOOL_STYLES, isStyledTool, nextRecent, type StyledTool, type ToolStyle } from './tool-style';
+import { DEFAULT_RECENT_COLORS, DEFAULT_TOOL_STYLES, STYLES_KEY, isStyledTool, nextRecent, readSavedStyles, type SavedStyles, type StyledTool, type ToolStyle } from './tool-style';
 import {
   isSignatureArt, strokesToArt, MAX_IMAGE_FILE_BYTES, newImageStampRect, newSignatureRect, DEFAULT_STAMP, batch, changeStampPreset, newStampRect, stampPreset as findStampPreset, idsToRemove, importedAnnotations, isImportedId, pdfIdOf, removeImportedAnnotations, DEFAULT_FONT_SIZE, DEFAULT_TEXT_WIDTH, History, NOTE_FILL, fitFreeText, sanitizeText, describeError, addAnnotation, normalizeRect, pointsBounds, updateAnnotation, blobSource, memorySource, addSource, deletePages, duplicatePages, emptyDocument, preflight, removeAnnotation, reorderPages, rotatePages, selectPages,
   type Annotation, type AnnotComment, type AnnotId, type SignatureArt, type SourceAnnotation, type StampAnnot, type FontFamily, type FreeTextAnnot, type AppError, type Command, type PageId, type Point, type Quad, type RGBA, type ShapeAnnot, type SourceDoc, type SourceId, type WorkingDocument,
@@ -171,6 +171,8 @@ export class AppStore {
         this.emit();
       }
     });
+    // Each tool's colour and thickness, the recent colours and the text font, as they were left last time.
+    void deps.platform.secure?.get<unknown>(STYLES_KEY).then((stored) => this.restoreStyles(readSavedStyles(stored)), () => {});
     void deps.platform.secure?.get<unknown>(SIGNATURES_KEY).then((stored) => {
       const signatures = validSignatures(stored);
       if (signatures.length > 0) this.patch({ signatures });
@@ -179,6 +181,36 @@ export class AppStore {
       this.pruneSelection();
       this.emit();
     });
+  }
+
+  /** Set once a style is changed in this session, so styles loaded late from storage never overwrite it. */
+  private stylesChanged = false;
+
+  private restoreStyles(saved: SavedStyles | undefined): void {
+    if (!saved || this.stylesChanged) return;
+    const toolStyles = { ...this.ui.toolStyles, ...saved.toolStyles };
+    const tool = this.ui.activeTool;
+    const own = isStyledTool(tool) ? toolStyles[tool] : undefined;
+    this.patch({
+      toolStyles,
+      ...(saved.recentColors.length > 0 ? { recentColors: saved.recentColors } : {}),
+      drawStyle: {
+        ...this.ui.drawStyle,
+        ...(own ? { color: own.color, width: own.width } : {}),
+        ...(saved.fontFamily ? { fontFamily: saved.fontFamily } : {}),
+        ...(saved.fontSize ? { fontSize: saved.fontSize } : {}),
+      },
+    });
+  }
+
+  /** Keeps the styles on this device for next time. Losing them is harmless, so a failure is not reported. */
+  private saveStyles(): void {
+    this.stylesChanged = true;
+    const saved: SavedStyles = {
+      toolStyles: this.ui.toolStyles, recentColors: [...this.ui.recentColors],
+      fontFamily: this.ui.drawStyle.fontFamily, fontSize: this.ui.drawStyle.fontSize,
+    };
+    Promise.resolve(this.deps.platform.secure?.set(STYLES_KEY, saved)).catch(() => {});
   }
 
   // ---- React integration -------------------------------------------------------------
@@ -583,6 +615,7 @@ export class AppStore {
       drawStyle: style,
       ...(remember ? { toolStyles: { ...this.ui.toolStyles, [tool]: { color: style.color, width: style.width } } } : {}),
     });
+    this.saveStyles();
   }
 
   private restyle(a: Exclude<Annotation, StampAnnot>, patch: Partial<DrawStyle>): void {
@@ -619,6 +652,7 @@ export class AppStore {
     const previous = this.restylable()?.color ?? this.ui.drawStyle.color;
     this.patch({ recentColors: nextRecent(this.ui.recentColors, previous, color) });
     this.setDrawStyle({ color });
+    this.saveStyles(); // (restyling a selection changes the recent colours too)
   }
 
   // ---- Notes and comments ------------------------------------------------------------

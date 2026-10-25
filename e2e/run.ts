@@ -820,6 +820,12 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     heights['text box selected'] = await toolbarHeight();
     const distinct = new Set(Object.values(heights).map((h) => Math.round(h)));
     check('the toolbar keeps the same height for every tool and selection', distinct.size === 1, JSON.stringify(heights));
+
+    // Styles are kept on the device: after a reload the pen is still purple and as thick.
+    await s.page.reload();
+    await openPdf(s.page, SAMPLE);
+    await chooseTool(s.page, 'Pen');
+    check('after reloading the page, the pen keeps its colour and thickness', (await colourLabel()) === 'Colour: Purple' && (await thickness()) === `${picked} pt`, `${await colourLabel()} ${await thickness()}`);
   },
 
   async pages(s) {

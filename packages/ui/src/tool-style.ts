@@ -97,3 +97,41 @@ export function nextRecent(recent: readonly RGBA[], previous: RGBA, chosen: RGBA
   if (sameColor(previous, chosen)) return [...recent];
   return [previous, ...recent].filter((c, i, all) => !sameColor(c, chosen) && all.findIndex((d) => sameColor(c, d)) === i).slice(0, MAX_RECENT_COLORS);
 }
+
+/** What is kept on the device between sessions: each tool's style, the recent colours and the text box font. */
+export interface SavedStyles {
+  toolStyles: Partial<Record<StyledTool, ToolStyle>>;
+  recentColors: RGBA[];
+  fontFamily?: 'sans' | 'serif' | 'mono';
+  fontSize?: number;
+}
+
+export const STYLES_KEY = 'toolStyles';
+
+const isColor = (c: unknown): c is RGBA => {
+  const x = c as Partial<RGBA> | null;
+  return !!x && [x.r, x.g, x.b, x.a].every((v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1);
+};
+
+/**
+ * Reads saved styles back. What comes from storage may be old, damaged or edited by hand: anything that is not a
+ * known tool with a valid colour and a thickness in range is left out, so the tool keeps its default.
+ */
+export function readSavedStyles(stored: unknown): SavedStyles | undefined {
+  if (!stored || typeof stored !== 'object') return undefined;
+  const s = stored as Record<string, unknown>;
+  const toolStyles: Partial<Record<StyledTool, ToolStyle>> = {};
+  const raw = s.toolStyles && typeof s.toolStyles === 'object' ? (s.toolStyles as Record<string, unknown>) : {};
+  for (const tool of Object.keys(DEFAULT_TOOL_STYLES) as StyledTool[]) {
+    const t = raw[tool] as Partial<ToolStyle> | undefined;
+    const min = THICKNESS_STEPS[0]!;
+    const max = THICKNESS_STEPS[THICKNESS_STEPS.length - 1]!;
+    if (t && isColor(t.color) && typeof t.width === 'number' && t.width >= min && t.width <= max) {
+      toolStyles[tool] = { color: { r: t.color.r, g: t.color.g, b: t.color.b, a: t.color.a }, width: t.width };
+    }
+  }
+  const recentColors = Array.isArray(s.recentColors) ? s.recentColors.filter(isColor).slice(0, MAX_RECENT_COLORS) : [];
+  const fontFamily = s.fontFamily === 'sans' || s.fontFamily === 'serif' || s.fontFamily === 'mono' ? s.fontFamily : undefined;
+  const fontSize = typeof s.fontSize === 'number' && s.fontSize >= 4 && s.fontSize <= 144 ? s.fontSize : undefined;
+  return { toolStyles, recentColors, ...(fontFamily ? { fontFamily } : {}), ...(fontSize ? { fontSize } : {}) };
+}
