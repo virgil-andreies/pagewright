@@ -274,7 +274,11 @@ export class AppStore {
       }
       const source: SourceDoc = { ...base, pageCount: rd.pageCount };
       this.renderDocs.set(id, rd);
+      // A file opened into an empty window is the document as it is on disk: nothing to save yet. A file added to
+      // pages already open is a change (a merge) that no file holds until it is saved.
+      const firstFile = this.history.current.pages.length === 0;
       this.history.execute(addSource(source, undefined, this.newId));
+      if (firstFile) this.history.markSaved();
       void this.loadSourceAnnotations(id, source.pageCount);
       // Opening is lazy and always fine; saving needs far more memory. Say so now, not at Save.
       const tooBig = preflight(this.history.current, { memoryBudgetMB: this.deps.platform.device.memoryBudgetMB }).errors.find(

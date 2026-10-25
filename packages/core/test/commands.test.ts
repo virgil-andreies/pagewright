@@ -171,6 +171,36 @@ describe('History', () => {
     expect(h.canRedo).toBe(false);
   });
 
+  it('has unsaved changes exactly when the document differs from the last saved one', () => {
+    const h = setup([2]);
+    h.markSaved();
+    const id = h.current.pages[0]!.id;
+    h.execute(rotatePages([id], 90));
+    h.execute(rotatePages([id], 90));
+    expect(h.current.dirty).toBe(true);
+    h.undo();
+    expect(h.current.dirty).toBe(true); // still one rotation away
+    h.undo();
+    expect(h.current.dirty).toBe(false); // back to what was saved
+    h.redo();
+    h.redo();
+    h.markSaved();
+    h.undo();
+    expect(h.current.dirty).toBe(true); // before the save: a change
+    h.redo();
+    expect(h.current.dirty).toBe(false); // what was saved
+  });
+
+  it('redo restores the very document the step made, not a rebuilt copy', () => {
+    const h = setup([2]);
+    const id = h.current.pages[0]!.id;
+    h.execute(rotatePages([id], 90));
+    const made = h.current.pages;
+    h.undo();
+    h.redo();
+    expect(h.current.pages).toBe(made);
+  });
+
   it('notifies subscribers', () => {
     const h = setup([1]);
     let calls = 0;

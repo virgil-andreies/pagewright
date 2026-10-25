@@ -930,12 +930,16 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await openPdf(s.page, SAMPLE);
     const thumbs = () => count(s.page, '.thumb');
     check('five thumbnails for the five-page sample', (await thumbs()) === 5);
+    const status = () => s.page.$eval('.toolbar .status', (e) => e.textContent ?? '');
+    check('a file just opened has no unsaved changes', (await status()) === 'Page 1 of 5', await status());
     await (await s.page.$$('.thumb'))[2]!.click();
     check('clicking a thumbnail selects it', (await count(s.page, '.thumb.selected')) === 1);
     await clickButton(s.page, 'Delete');
     check('Delete removes the selected page', (await thumbs()) === 4);
+    check('and that is an unsaved change', /unsaved changes/.test(await status()), await status());
     await clickButton(s.page, 'Undo');
     check('Undo brings it back', (await thumbs()) === 5);
+    check('and with it back as it was, there is nothing unsaved again', !/unsaved/.test(await status()), await status());
 
     const firstId = () => s.page.$eval('.thumb', (e) => e.getAttribute('data-page-id'));
     const first = await firstId();

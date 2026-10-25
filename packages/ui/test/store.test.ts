@@ -209,10 +209,56 @@ describe('AppStore: page operations and selection', () => {
   });
 });
 
+describe('AppStore: unsaved changes', () => {
+  it('has none right after opening a file', async () => {
+    const { store } = setup();
+    await store.addFiles([file('a.pdf')]);
+    expect(store.getSnapshot().doc.dirty).toBe(false);
+  });
+
+  it('has some after adding a second file, which no file on disk holds yet', async () => {
+    const { store } = setup();
+    await store.addFiles([file('a.pdf')]);
+    await store.addFiles([file('b.pdf')]);
+    expect(store.getSnapshot().doc.dirty).toBe(true);
+  });
+
+  it('opening several files at once is a merge too', async () => {
+    const { store } = setup();
+    await store.addFiles([file('a.pdf'), file('b.pdf')]);
+    expect(store.getSnapshot().doc.dirty).toBe(true);
+  });
+
+  it('has none again after undoing back to the opened document, and some after redoing', async () => {
+    const { store } = setup();
+    await store.addFiles([file('a.pdf')]);
+    store.rotatePages(90, [store.getSnapshot().doc.pages[0]!.id]);
+    expect(store.getSnapshot().doc.dirty).toBe(true);
+    store.undo();
+    expect(store.getSnapshot().doc.dirty).toBe(false);
+    store.redo();
+    expect(store.getSnapshot().doc.dirty).toBe(true);
+  });
+
+  it('counts from the last save: undoing past it is a change again', async () => {
+    const { store } = setup();
+    await store.addFiles([file('a.pdf')]);
+    const id = store.getSnapshot().doc.pages[0]!.id;
+    store.rotatePages(90, [id]);
+    await store.save();
+    expect(store.getSnapshot().doc.dirty).toBe(false);
+    store.undo(); // back to the opened file: different from what was saved
+    expect(store.getSnapshot().doc.dirty).toBe(true);
+    store.redo(); // what was saved
+    expect(store.getSnapshot().doc.dirty).toBe(false);
+  });
+});
+
 describe('AppStore: saving', () => {
   it('saves through the writer and platform, then marks the document clean', async () => {
     const { store, writer, saved } = setup();
     await store.addFiles([file('report.pdf')]);
+    store.rotatePages(90, [store.getSnapshot().doc.pages[0]!.id]);
     expect(store.getSnapshot().doc.dirty).toBe(true);
     expect(await store.save()).toBe(true);
     expect(writer.save).toHaveBeenCalledOnce();
@@ -241,6 +287,7 @@ describe('AppStore: saving', () => {
   it('does nothing when the user cancels the save dialog', async () => {
     const { store, platform, writer } = setup();
     await store.addFiles([file('a.pdf')]);
+    store.rotatePages(90, [store.getSnapshot().doc.pages[0]!.id]);
     vi.mocked(platform.fs.openSaveTarget).mockResolvedValueOnce(undefined);
     expect(await store.save()).toBe(false);
     expect(writer.save).not.toHaveBeenCalled();
@@ -251,6 +298,7 @@ describe('AppStore: saving', () => {
   it('cancelling a running save is not an error and leaves the document dirty', async () => {
     const { store, writer } = setup();
     await store.addFiles([file('a.pdf')]);
+    store.rotatePages(90, [store.getSnapshot().doc.pages[0]!.id]);
     vi.mocked(writer.save).mockImplementationOnce(
       (_d, _o, _p, signal) =>
         new Promise((_, reject) => signal!.addEventListener('abort', () => reject(Object.assign(new Error('Save cancelled'), { name: 'AbortError' })))),
