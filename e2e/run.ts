@@ -159,6 +159,15 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
         for (let i = 0; i < d.length; i += 4) if (d[i]! > 230 && d[i + 1]! > 190 && d[i + 2]! < 150) n++;
         return n;
       }, rect);
+    /** Waits (up to 5 s) for the page image to be drawn again until the yellow count is as wanted; returns the last count. */
+    const yellowOnceRedrawn = async (rect: { x: number; y: number; w: number; h: number }, wanted: (n: number) => boolean) => {
+      let n = await yellow(rect);
+      for (let i = 0; i < 50 && !wanted(n); i++) {
+        await sleep(100);
+        n = await yellow(rect);
+      }
+      return n;
+    };
     const selectedText = () => s.page.evaluate(() => window.getSelection()?.toString() ?? '');
     const threads = () => s.page.$$eval('.thread .body', (e) => e.map((x) => x.textContent));
 
@@ -188,19 +197,19 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     check('the highlight is still in the page image after the panel opened', total > 200, `${total}`);
     // Selecting it again (the earlier selection is still there), then deleting: gone from the image, others stay.
     await s.page.keyboard.press('Delete');
-    await sleep(900); // the page image is rendered again
-    const after = await yellow(areaNow);
+    const gone = (n: number) => n < total * 0.03;
+    const after = await yellowOnceRedrawn(areaNow, gone); // the page image is drawn again
     // A few anti-aliased text pixels can look yellowish, so allow a sliver rather than demanding exactly none.
     check('Delete takes the highlight out of the page image', after < total * 0.03, `${after} of ${total} yellow pixels left`);
     check('and out of the comments panel', !(await threads()).includes('Highlight with a comment'));
     await s.page.screenshot({ path: resolve(SHOTS, 'original-deleted.png') });
 
     await ctrl(s, 'z');
-    await sleep(900);
-    check('Ctrl+Z brings it back in the image', (await yellow(areaNow)) > total * 0.9);
+    const back = await yellowOnceRedrawn(areaNow, (n) => n > total * 0.9);
+    check('Ctrl+Z brings it back in the image', back > total * 0.9, `${back} of ${total} yellow pixels`);
     await ctrl(s, 'y');
-    await sleep(900);
-    check('Ctrl+Y removes it again', (await yellow(areaNow)) < total * 0.03);
+    const again = await yellowOnceRedrawn(areaNow, gone);
+    check('Ctrl+Y removes it again', gone(again), `${again} of ${total} yellow pixels left`);
 
     // Delete a note thread from the panel.
     const note = await s.page.$('.thread[data-annot-id^="pdf:"] .row-actions button');
