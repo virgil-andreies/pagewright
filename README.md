@@ -57,6 +57,11 @@ Other scripts:
 | `pnpm bench-large <file>` | Measures open, edit and save time and memory on a big PDF |
 | `pnpm gen-font-data` | Regenerates the font metrics in `packages/core` from pdf-lib |
 | `pnpm --filter web build` then `pnpm --filter web check-bundle` | Checks the first download stays small: the main file under its budget, and pdf-lib and the font engine (loaded only when needed) not in it |
+| `pnpm --filter web check-live <address>` | Checks a published site serves this build: start page, app files, PDF.js data, and the 404 page for a missing address |
+
+## Checks and publishing
+
+Every push to `main` runs [the CI workflow](.github/workflows/ci.yml): typecheck, unit tests, the production build and its size, and the real-browser tests. When all of them pass, that same build is published to Cloudflare (a Worker serving static files only, configured in [apps/web/wrangler.jsonc](apps/web/wrangler.jsonc)) and the live site is checked with `check-live`.
 
 ## How it is organised
 

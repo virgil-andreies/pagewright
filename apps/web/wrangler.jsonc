@@ -3,6 +3,10 @@
 {
   "name": "pagewright",
   "compatibility_date": "2026-10-01",
+  // Served at pagewright.<account subdomain>.workers.dev until the site has its own domain.
+  "workers_dev": true,
+  // Only main is published (after the checks), so no per-version preview addresses.
+  "preview_urls": false,
   "assets": {
     "directory": "./dist",
     // An address that does not exist gets 404.html with a 404 status, never the app: a missing file stays visible.
