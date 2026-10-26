@@ -68,6 +68,14 @@ export async function start(opts: { build?: boolean } = {}): Promise<Session> {
   await (await browser.target().createCDPSession()).send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: DOWNLOADS });
   page.on('pageerror', (e) => console.log('  [page error]', e.message));
   page.on('console', (m) => m.type() === 'error' && console.log('  [console error]', m.text()));
+  // The preview server sends the host's security policy (public/_headers): collect anything it blocks, in every
+  // page and worker, so a feature that the policy quietly breaks fails the run (see takeBlocked).
+  const watchPage = (p: Page) => {
+    p.on('console', (m) => noteBlocked(m.text()));
+    p.on('workercreated', (w) => w.on('console', (m) => noteBlocked(`(worker) ${m.text()}`)));
+  };
+  watchPage(page);
+  browser.on('targetcreated', (t) => void t.page().then((p) => p && p !== page && watchPage(p)));
   await page.goto(url);
   return {
     browser, page, url,
@@ -77,6 +85,17 @@ export async function start(opts: { build?: boolean } = {}): Promise<Session> {
       else server.kill();
     },
   };
+}
+
+let blocked: string[] = [];
+function noteBlocked(text: string): void {
+  if (/Content Security Policy/i.test(text)) blocked.push(text.slice(0, 200));
+}
+/** What the security policy blocked since the last call. */
+export function takeBlocked(): string[] {
+  const out = blocked;
+  blocked = [];
+  return out;
 }
 
 /** A real mouse click on a button by its visible text. */

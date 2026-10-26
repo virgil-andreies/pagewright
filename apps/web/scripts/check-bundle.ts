@@ -31,11 +31,20 @@ for (const [what, markers] of Object.entries(outsiders)) {
 }
 if (!files.some((f) => /^typed-signature-.*\.js$/.test(f))) problems.push('typed signatures are no longer a separate file');
 
-// PDF.js fetches its standard fonts and character maps at run time from exactly these paths: a file in the wrong
-// place is not a 404 on most hosts but the app's own page, which PDF.js then fails to read.
+// PDF.js fetches its standard fonts, character maps and image decoders at run time from exactly these paths (in a
+// folder named after its version, see vite.config.ts): a file in the wrong place leaves text or images missing.
 const dist = resolve(import.meta.dirname, '../dist');
-for (const needed of ['pdfjs/cmaps/UniJIS-UCS2-H.bcmap', 'pdfjs/cmaps/UniGB-UCS2-H.bcmap', 'pdfjs/standard_fonts/FoxitFixed.pfb', 'pdfjs/standard_fonts/LiberationSans-Regular.ttf']) {
-  if (!existsSync(resolve(dist, needed))) problems.push(`${needed} is not where PDF.js will look for it`);
+const pdfjsVersion = (JSON.parse(readFileSync(resolve(import.meta.dirname, '../node_modules/pdfjs-dist/package.json'), 'utf8')) as { version: string }).version;
+const pdfjsData = `pdfjs/${pdfjsVersion}`;
+for (const needed of ['cmaps/UniJIS-UCS2-H.bcmap', 'cmaps/UniGB-UCS2-H.bcmap', 'standard_fonts/FoxitFixed.pfb', 'standard_fonts/LiberationSans-Regular.ttf', 'wasm/jbig2.wasm', 'wasm/openjpeg.wasm', 'wasm/qcms_bg.wasm', 'wasm/openjpeg_nowasm_fallback.js']) {
+  if (!existsSync(resolve(dist, pdfjsData, needed))) problems.push(`${pdfjsData}/${needed} is not where PDF.js will look for it`);
+}
+if (existsSync(resolve(dist, pdfjsData, 'wasm/quickjs-eval.wasm'))) problems.push('PDF.js’s script engine (quickjs) is published, but the app does not run scripts in PDFs');
+
+// The security policy (public/_headers) lets the page fetch only from the site itself, so fonts must stay files:
+// one inlined as a data: URL could not be fetched by the signature code.
+for (const f of files.filter((x) => /\.(js|css)$/.test(x))) {
+  if (/data:font\/woff/.test(readFileSync(resolve(assets, f), 'latin1'))) problems.push(`${f} has a font inlined as a data: URL`);
 }
 
 const total = files.reduce((n, f) => n + statSync(resolve(assets, f)).size, 0);

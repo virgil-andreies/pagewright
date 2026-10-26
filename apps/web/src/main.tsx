@@ -12,10 +12,12 @@ import { unicodeFontUrls } from './text-fonts';
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const platform = createWebPlatform();
+const pdfjsData = `${import.meta.env.BASE_URL}${__PDFJS_DATA__}`;
 const renderer = new PdfJsRenderer({
   pdfjs,
-  standardFontDataUrl: `${import.meta.env.BASE_URL}pdfjs/standard_fonts/`,
-  cMapUrl: `${import.meta.env.BASE_URL}pdfjs/cmaps/`,
+  standardFontDataUrl: `${pdfjsData}standard_fonts/`,
+  cMapUrl: `${pdfjsData}cmaps/`,
+  wasmUrl: `${pdfjsData}wasm/`,
 });
 // Saving runs in a worker (spec section 9); the result is verified here with PDF.js.
 const writer = new WorkerPdfWriter({

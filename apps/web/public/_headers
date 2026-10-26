@@ -1,0 +1,29 @@
+# Response headers the host (Cloudflare) adds. The local preview applies the same file (host-headers.ts), so the
+# browser tests run under exactly these rules, and scripts/check-live.ts checks the live site sends them.
+# A header set by two matching rules gets both values, so each header is set by one rule only.
+
+# Every response: what the page may load and do. Pagewright never sends anything anywhere, and this makes the
+# browser enforce it (connect-src 'self'), even if a crafted PDF found a bug to run code with.
+#   wasm-unsafe-eval: PDF.js's image decoders (JBIG2, JPEG 2000) and colour-profile support are WebAssembly.
+#   style 'unsafe-inline': React sets positions and sizes as style attributes.
+#   blob: and data: images and fonts: pictures for image stamps, and fonts PDF.js builds from the PDF.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=(), browsing-topics=()
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000
+
+# The app's code: every file name includes a hash of its content, so a file never changes and can be kept.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# PDF.js's fonts, character maps and image decoders, in a folder named after the PDF.js version: kept as well.
+/pdfjs/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Character maps are binary data (there is no standard type for them).
+/pdfjs/:version/cmaps/*
+  Content-Type: application/octet-stream

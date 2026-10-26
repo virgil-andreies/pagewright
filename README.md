@@ -63,6 +63,8 @@ Other scripts:
 
 Every push to `main` runs [the CI workflow](.github/workflows/ci.yml): typecheck, unit tests, the production build and its size, and the real-browser tests. When all of them pass, that same build is published to Cloudflare (a Worker serving static files only, configured in [apps/web/wrangler.jsonc](apps/web/wrangler.jsonc)) and the live site is checked with `check-live`.
 
+The response headers the host adds (security policy and caching) are in [apps/web/public/_headers](apps/web/public/_headers); the local preview server applies the same file, so `pnpm e2e` runs under them.
+
 ## How it is organised
 
 ```mermaid

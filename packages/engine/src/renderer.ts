@@ -20,6 +20,11 @@ export interface PdfJsRendererOptions {
    * fonts the PDF does not embed. Without them such text shows as missing or wrong characters.
    */
   cMapUrl?: string;
+  /**
+   * URL/path (with trailing slash) of pdfjs-dist/wasm/: PDF.js's image decoders for JBIG2 (black-and-white scans) and
+   * JPEG 2000, and its colour-profile support. Without them such images are left blank.
+   */
+  wasmUrl?: string;
 }
 
 const WHOLE_FILE_MAX = 4 * 1024 * 1024;
@@ -64,6 +69,7 @@ export class PdfJsRenderer implements PdfRenderer {
       password,
       ...(this.opts.standardFontDataUrl ? { standardFontDataUrl: this.opts.standardFontDataUrl } : {}),
       ...(this.opts.cMapUrl ? { cMapUrl: this.opts.cMapUrl, cMapPacked: true } : {}),
+      ...(this.opts.wasmUrl ? { wasmUrl: this.opts.wasmUrl } : {}),
     });
     try {
       return new PdfJsDoc(source.id, await task.promise, pdfjs);

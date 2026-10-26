@@ -8,7 +8,7 @@ import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream } f
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { textWidth } from '../packages/core/src';
 import {
-  SHOTS, check, chooseTool, clearDownloads, clickButton, clickOnPage, count, doubleClickOnPage, dragOnPage, failureCount, openPdf, sleep, start, waitForDownload,
+  SHOTS, check, chooseTool, clearDownloads, clickButton, clickOnPage, count, doubleClickOnPage, dragOnPage, failureCount, openPdf, sleep, start, takeBlocked, waitForDownload,
   type Session,
 } from './harness';
 
@@ -969,6 +969,15 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     check('nothing the app asks for is missing (no 404s)', failed.length === 0, JSON.stringify(failed));
     s.page.off('response', watch);
 
+    // The host's response headers (public/_headers), which the preview server applies too.
+    const headers = await s.page.evaluate(async () => {
+      const page = (await fetch('/')).headers;
+      const code = (await fetch([...document.scripts].find((x) => x.src.includes('/assets/'))!.src)).headers;
+      return { csp: page.get('content-security-policy') ?? '', pageCache: page.get('cache-control') ?? '', codeCache: code.get('cache-control') ?? '' };
+    });
+    check('every response carries the security policy, which allows no other site', headers.csp.includes("connect-src 'self'") && headers.csp.includes("default-src 'self'"), headers.csp);
+    check('the app’s code is kept by the browser, the start page is not', headers.codeCache.includes('immutable') && !headers.pageCache.includes('immutable'), JSON.stringify(headers));
+
     // A missing address or file is answered with 404, never with the app (which would hide a missing file).
     const missing = await s.page.evaluate(async () => Promise.all(['/no-such-page', '/pdfjs/cmaps/no-such-map.bcmap'].map(async (p) => (await fetch(p)).status)));
     check('a missing address or file gets a 404, not the app', missing.every((st) => st === 404), JSON.stringify(missing));
@@ -1008,7 +1017,7 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     writeFileSync(file, await pdf.save());
 
     const maps: number[] = [];
-    const watch = (r: { url(): string; status(): number }) => r.url().includes('/pdfjs/cmaps/') && maps.push(r.status());
+    const watch = (r: { url(): string; status(): number }) => /\/pdfjs\/[^/]+\/cmaps\//.test(r.url()) && maps.push(r.status());
     s.page.on('response', watch);
     await s.page.goto(s.url);
     await openPdf(s.page, file);
@@ -1017,6 +1026,32 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     check('the app fetches the character map it needs from where it is published', maps.length > 0 && maps.every((st) => st === 200), JSON.stringify(maps));
     const text = await s.page.$eval('.page-view .textLayer', (e) => e.textContent ?? '');
     check('and the page’s text reads as the Japanese it is (selectable, searchable)', text.includes('日本語のテキスト'), JSON.stringify(text));
+  },
+
+  async scanned(s) {
+    console.log('Scanned pages: JBIG2 and JPEG 2000 images');
+    // Two small files from PDF.js's own tests (e2e/fixtures/README.md): each page is one picture in a format that
+    // needs PDF.js's WebAssembly decoders, which the app must publish and the security policy must allow.
+    for (const [file, what] of [['jbig2_symbol_offset.pdf', 'a black-and-white JBIG2 scan'], ['jp2k-resetprob.pdf', 'a JPEG 2000 picture']] as const) {
+      const notes: string[] = [];
+      const listen = (m: { text(): string }) => /decode image|wasm|failed to initialize/i.test(m.text()) && notes.push(m.text());
+      s.page.on('console', listen);
+      await s.page.goto(s.url);
+      await openPdf(s.page, resolve(import.meta.dirname, 'fixtures', file));
+      await s.page.waitForSelector('.page-view canvas');
+      await sleep(1500);
+      s.page.off('console', listen);
+      const drawn = await s.page.evaluate(() => {
+        const c = document.querySelector('.page-view canvas') as HTMLCanvasElement;
+        const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i]! < 200 || d[i + 1]! < 200 || d[i + 2]! < 200) n++;
+        return n / (d.length / 4);
+      });
+      await s.page.screenshot({ path: resolve(SHOTS, `scanned-${file}.png`) });
+      // Blank is 0%; the JBIG2 page is two words of text, about 1%.
+      check(`${what} is drawn, not left blank`, drawn > 0.002 && notes.length === 0, `${(drawn * 100).toFixed(1)}% of the page drawn; ${notes.join(' | ').slice(0, 300)}`);
+    }
   },
 
   async zoom(s) {
@@ -1249,6 +1284,9 @@ try {
       check(`${name}: scenario ran to the end`, false, e instanceof Error ? e.message : String(e));
       await session.page.screenshot({ path: resolve(SHOTS, `${name}-error.png`) }).catch(() => {});
     }
+    await sleep(100); // let the last console messages arrive
+    const blocked = takeBlocked();
+    check(`${name}: the security policy blocked nothing`, blocked.length === 0, blocked.join(' | '));
   }
 } finally {
   await session.close();
