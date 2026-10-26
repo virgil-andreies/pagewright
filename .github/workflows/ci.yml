@@ -1,0 +1,65 @@
+# Checks every push to main: types, unit tests, the production build and its size, and the real-browser tests.
+# GitHub e-mails the person who pushed when a run fails.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push makes the older, still-running check pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # The pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build the web app
+        run: pnpm --filter @pagewright/web build
+
+      - name: Check the bundle size
+        run: pnpm --filter @pagewright/web check-bundle
+
+      - name: Make the sample PDF the browser tests open
+        run: pnpm sample
+
+      # Uses the Chrome preinstalled on the runner, and the build from above.
+      - name: Real-browser tests
+        run: pnpm e2e
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+          E2E_SKIP_BUILD: '1'
+
+      - name: Keep the screenshots of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: out/e2e
+          retention-days: 7
+          if-no-files-found: ignore

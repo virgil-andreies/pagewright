@@ -36,7 +36,8 @@ export interface Session {
 
 export async function start(opts: { build?: boolean } = {}): Promise<Session> {
   const web = resolve(ROOT, 'apps/web');
-  if (opts.build !== false) {
+  // E2E_SKIP_BUILD=1 reuses the build already in apps/web/dist (CI builds once and checks its size first).
+  if (opts.build !== false && !process.env.E2E_SKIP_BUILD) {
     const built = spawnSync('pnpm', ['exec', 'vite', 'build'], { cwd: web, shell: true, encoding: 'utf8' });
     if (built.status !== 0) throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
   }
@@ -53,7 +54,9 @@ export async function start(opts: { build?: boolean } = {}): Promise<Session> {
   }
 
   mkdirSync(SHOTS, { recursive: true });
-  const browser = await puppeteer.launch({ executablePath: findChrome(), headless: true, defaultViewport: { width: 1360, height: 900 } });
+  // CI runners do not allow Chrome's own sandbox; there the runner itself is the sandbox.
+  const args = process.env.CI ? ['--no-sandbox'] : [];
+  const browser = await puppeteer.launch({ executablePath: findChrome(), headless: true, args, defaultViewport: { width: 1360, height: 900 } });
   const page = await browser.newPage();
   // Headless Chrome cannot answer the native Save dialog, so use the app's download fallback instead and
   // collect what it saves.
