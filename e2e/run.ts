@@ -968,6 +968,24 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await openPdf(s.page, SAMPLE);
     check('nothing the app asks for is missing (no 404s)', failed.length === 0, JSON.stringify(failed));
     s.page.off('response', watch);
+
+    // A missing address or file is answered with 404, never with the app (which would hide a missing file).
+    const missing = await s.page.evaluate(async () => Promise.all(['/no-such-page', '/pdfjs/cmaps/no-such-map.bcmap'].map(async (p) => (await fetch(p)).status)));
+    check('a missing address or file gets a 404, not the app', missing.every((st) => st === 404), JSON.stringify(missing));
+    // The page the host shows for them (Cloudflare serves it at any missing address; the local preview only by name).
+    const notFound = await s.browser.newPage();
+    try {
+      await notFound.goto(new URL('404.html', s.url).href);
+      const page = await notFound.evaluate(() => ({
+        title: document.title,
+        heading: document.querySelector('h1')?.textContent,
+        home: document.querySelector('main a')?.getAttribute('href'),
+        icon: (document.querySelector('main img') as HTMLImageElement | null)?.naturalWidth ?? 0,
+      }));
+      check('the 404 page says the page was not found and links back to the app', page.heading === 'Page not found' && page.home === '/' && page.icon > 0, JSON.stringify(page));
+    } finally {
+      await notFound.close();
+    }
   },
 
   async cjk(s) {

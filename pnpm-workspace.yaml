@@ -3,3 +3,5 @@ packages:
   - "apps/*"
 allowBuilds:
   esbuild: true
+  # Only checks that its platform binary was installed; pnpm installs that binary anyway.
+  workerd: false

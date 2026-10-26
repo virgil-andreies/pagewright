@@ -1,0 +1,11 @@
+// Hosting on Cloudflare: a Worker with static assets only (no server code), serving the production build.
+// Published from GitHub Actions after all checks pass (.github/workflows/ci.yml).
+{
+  "name": "pagewright",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    // An address that does not exist gets 404.html with a 404 status, never the app: a missing file stays visible.
+    "not_found_handling": "404-page"
+  }
+}

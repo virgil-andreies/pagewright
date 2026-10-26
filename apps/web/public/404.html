@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Page not found — Pagewright PDF</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <!-- Served by the host for any address that does not exist. Self-contained: the same colours as the app's start
+         screen, and only absolute links, since it can be shown at any path. -->
+    <style>
+      /* The button keeps the darker blue in dark mode too, so its white text stays easy to read. */
+      :root { --bg: #f4f5f7; --text: #1c1f26; --muted: #667085; --accent: #2563eb; color-scheme: light dark; }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #14161a; --text: #e8eaee; --muted: #98a2b3; }
+      }
+      body { margin: 0; background: var(--bg); color: var(--muted); font: 15px/1.5 system-ui, sans-serif; }
+      main { max-width: 440px; margin: 15vh auto 0; padding: 0 16px; text-align: center; }
+      h1 { margin: 12px 0 6px; font-size: 22px; color: var(--text); }
+      p { margin: 0 0 18px; }
+      a { display: inline-block; padding: 8px 18px; border-radius: 6px; background: var(--accent); color: #ffffff; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/favicon.svg" alt="" width="56" height="56" />
+      <h1>Page not found</h1>
+      <p>There is nothing at this address. Pagewright PDF has a single page, where you open your PDFs.</p>
+      <a href="/">Open Pagewright PDF</a>
+    </main>
+  </body>
+</html>

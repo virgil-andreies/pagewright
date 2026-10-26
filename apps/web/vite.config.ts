@@ -22,6 +22,8 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(version),
     __APP_COMMIT__: JSON.stringify(commit()),
   },
+  // One page and no client-side routes: like the host, answer a missing address with 404, not with the app.
+  appType: 'mpa',
   plugins: [
     react(),
     // PDF.js loads standard fonts and CMaps (CJK etc.) at runtime from these URLs.
