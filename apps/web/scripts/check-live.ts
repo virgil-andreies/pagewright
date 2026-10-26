@@ -9,7 +9,8 @@ const base = process.argv[2];
 if (!base) throw new Error('Give the address of the published site, e.g. https://pagewright.example.workers.dev');
 const at = (path: string) => new URL(path, base).href;
 const dist = resolve(import.meta.dirname, '../dist');
-const index = readFileSync(resolve(dist, 'index.html'), 'utf8');
+// Line endings aside: a Windows checkout builds the page with CRs in it, the published one comes from Linux.
+const index = readFileSync(resolve(dist, 'index.html'), 'utf8').replace(/\r/g, '');
 const main = index.match(/src="(\/assets\/index-[^"]+\.js)"/)?.[1];
 if (!main) throw new Error('No main file named in dist/index.html: build the app first.');
 
@@ -20,7 +21,7 @@ const get = (path: string) => fetch(at(path), { headers: { 'Sec-Fetch-Mode': 'na
 let live = '';
 for (let i = 0; i < 30 && live !== index; i++) {
   if (i > 0) await new Promise((r) => setTimeout(r, 2000));
-  live = await (await get('/')).text();
+  live = (await (await get('/')).text()).replace(/\r/g, '');
 }
 
 const problems: string[] = [];
