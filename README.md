@@ -59,6 +59,52 @@ Other scripts:
 
 ## How it is organised
 
+```mermaid
+flowchart TB
+  person(["You"])
+
+  subgraph ui["packages/ui · what you see"]
+    direction LR
+    toolbar["Toolbar and tools"]
+    viewer["Viewer and<br/>page thumbnails"]
+    store["App store<br/>state of the screen"]
+  end
+
+  subgraph core["packages/core · the document"]
+    direction LR
+    history["Commands with<br/>undo and redo"]
+    doc["Working document<br/>pages and annotations"]
+    rules["Geometry, text layout,<br/>checks before saving"]
+  end
+
+  subgraph engine["packages/engine · PDF work"]
+    direction LR
+    renderer["Renderer and<br/>render queue"]
+    worker["Save worker"]
+    appearance["Appearance builder<br/>annotations → PDF drawing"]
+  end
+
+  subgraph platform["packages/platform · the device"]
+    direction LR
+    files["Open and save files"]
+    storage["On-device storage<br/>signatures, styles"]
+  end
+
+  pdfjs[("PDF.js")]
+  pdflib[("pdf-lib · fontkit")]
+
+  person -- "clicks, draws, types" --> toolbar & viewer
+  toolbar & viewer --> store
+  store -- "every change" --> history --> doc
+  viewer -- "show pages" --> renderer --> pdfjs
+  store -- "build the PDF" --> worker --> appearance
+  worker --> pdflib
+  store -- "open, save" --> files
+  store --> storage
+```
+
+`apps/web` wires these parts together into the app. The screen never changes the document directly: every edit is a command, which is what makes undo and redo work. Pages are drawn by PDF.js; saving runs in a background worker that builds a new PDF with pdf-lib, so the screen stays responsive.
+
 A pnpm workspace. Each layer only depends on the ones above it in this list.
 
 | Package | Contents |
