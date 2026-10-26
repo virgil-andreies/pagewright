@@ -222,6 +222,10 @@ button.link { border: 0; padding: 0; background: none; color: var(--accent-stron
 .about .about-name { font-size: 18px; margin-top: 0; }
 .about .about-version, .about .about-small { color: var(--muted); font-size: 13px; }
 .about a { color: var(--accent-strong); }
+.about-delete { margin: 10px 0 4px; }
+.about-confirm { border: 1px solid var(--danger); border-radius: 8px; padding: 10px 12px; }
+.about-confirm .actions { margin-top: 8px; }
+button.danger { background: var(--danger); border-color: var(--danger); color: #ffffff; }
 .empty-state .brand-tagline { margin: 0 0 18px; font-size: 15px; }
 .empty-state p { margin: 4px 0; }
 .empty-state button { margin: 8px 0 4px; padding: 8px 18px; font-size: 15px; }

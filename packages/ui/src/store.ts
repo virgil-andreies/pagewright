@@ -156,6 +156,8 @@ function validSignatures(stored: unknown): SavedSignature[] {
 }
 
 export interface StoreDeps {
+  /** Starts the app afresh (after deleting what it stored). Defaults to reloading the page. */
+  restart?: () => void;
   /** Prepares pictures for image stamps (see `browserImageLoader`). Without it, image stamps cannot be added. */
   imageLoader?: ImageLoader;
   /** Needed to create typed signatures. Without it, only already-saved ones can be used. */
@@ -191,6 +193,8 @@ export class AppStore {
         this.emit();
       }
     });
+    // Copies of PDFs opened in tabs that have since closed are no longer needed: delete them.
+    void deps.platform.localData?.cleanUp().catch(() => {});
     // Each tool's colour and thickness, the recent colours and the text font, as they were left last time.
     void deps.platform.secure?.get<unknown>(STYLES_KEY).then((stored) => this.restoreStyles(readSavedStyles(stored)), () => {});
     void deps.platform.secure?.get<unknown>(SIGNATURES_KEY).then((stored) => {
@@ -476,6 +480,20 @@ export class AppStore {
 
   openAbout(open = true): void {
     this.patch({ aboutOpen: open });
+  }
+
+  /** Whether this device can delete what the app stored on it. */
+  get canDeleteLocalData(): boolean {
+    return !!this.deps.platform.localData;
+  }
+
+  /**
+   * Deletes everything the app stored on this device (name, signatures, tool settings and every private copy of a
+   * PDF), then starts afresh: the open document goes too, since its pages read from those copies.
+   */
+  async deleteLocalData(): Promise<void> {
+    await this.deps.platform.localData?.clearAll();
+    (this.deps.restart ?? (() => window.location.reload()))();
   }
 
   openSignatures(open = true): void {

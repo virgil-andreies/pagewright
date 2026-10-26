@@ -50,8 +50,19 @@ export interface KeyValueStore {
   set(key: string, value: unknown): Promise<void>;
 }
 
-/** Signatures, author name. */
-export interface SecureStore extends KeyValueStore {}
+/** Signatures, author name, tool styles. */
+export interface SecureStore extends KeyValueStore {
+  /** Removes everything stored. */
+  clear?(): Promise<void>;
+}
+
+/** What the app keeps on the device, as a whole. */
+export interface LocalData {
+  /** Removes what nothing needs any more (private copies of PDFs opened in tabs since closed). Call at start. */
+  cleanUp(): Promise<void>;
+  /** Removes everything the app stores on this device: settings, signatures, name and every private copy. */
+  clearAll(): Promise<void>;
+}
 
 export interface DeviceInfo {
   platform: 'web' | 'desktop' | 'ios' | 'android';
@@ -67,4 +78,5 @@ export interface Platform {
   share: ShareAdapter;
   secure: SecureStore;
   device: DeviceInfo;
+  localData?: LocalData;
 }

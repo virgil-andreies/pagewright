@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useBrand } from '../brand';
-import { useUi } from '../react';
+import { useSnapshot, useUi } from '../react';
 import { Modal } from './Modal';
 
 /**
@@ -8,7 +9,21 @@ import { Modal } from './Modal';
  */
 export function AboutDialog() {
   const { store } = useUi();
+  const { doc } = useSnapshot();
   const brand = useBrand();
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const remove = async () => {
+    setDeleting(true);
+    setFailed(false);
+    try {
+      await store.deleteLocalData(); // restarts the app when done
+    } catch {
+      setFailed(true);
+      setDeleting(false);
+    }
+  };
   const version = [brand.version, brand.commit].filter(Boolean).join(' · ');
   return (
     <Modal title={`About ${brand.name}`} onClose={() => store.openAbout(false)}>
@@ -32,7 +47,32 @@ export function AboutDialog() {
           <li>each tool’s colour and settings</li>
           <li>a private working copy of each PDF you open, so it keeps working after you save over the original</li>
         </ul>
-        <p>Other websites cannot see any of this.</p>
+        <p>
+          Other websites cannot see any of this. The working copies are deleted the next time you open {brand.name}{store.canDeleteLocalData ? ', or right away with the button below' : ''}.
+        </p>
+        {store.canDeleteLocalData && (
+          <div className="about-delete" role="group" aria-label="Delete stored data">
+            {!confirming ? (
+              <button onClick={() => setConfirming(true)}>Delete everything stored on this device…</button>
+            ) : (
+              <div className="about-confirm" role="alert">
+                <p>
+                  <strong>Delete your name, saved signatures, tool settings and every working copy?</strong> This cannot be undone.
+                  {doc.pages.length > 0 && (
+                    <>
+                      {' '}The document open now will be closed{doc.dirty ? ', and its unsaved changes lost: save it first if you need them' : ''}.
+                    </>
+                  )}
+                </p>
+                {failed && <p className="error-text">Something could not be deleted. Please try again.</p>}
+                <div className="actions">
+                  <button onClick={() => setConfirming(false)} disabled={deleting}>Cancel</button>
+                  <button className="danger" onClick={() => void remove()} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete everything'}</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <h3>Works best in</h3>
         <p>

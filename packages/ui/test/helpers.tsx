@@ -44,9 +44,11 @@ export function setup(pageCount = 3, original: (pageIndex: number) => SourceAnno
     fs: { openSaveTarget, pickFiles: vi.fn(async () => nextFile), onOpenRequest: () => () => {} },
     device: { platform: 'web', memoryBudgetMB: 1000 },
     secure: { get: async (k: string) => secrets.get(k), set: async (k: string, v: unknown) => void secrets.set(k, JSON.parse(JSON.stringify(v))) },
+    localData: { cleanUp: vi.fn(async () => {}), clearAll: vi.fn(async () => void secrets.clear()) },
   } as unknown as Platform;
+  const restart = vi.fn();
   let n = 0;
-  const store = new AppStore({ renderer, writer, platform, signatureMaker, imageLoader, newId: () => `id${++n}` });
+  const store = new AppStore({ renderer, writer, platform, signatureMaker, imageLoader, restart, newId: () => `id${++n}` });
   const open = async () => {
     nextFile = [{ name: 'doc.pdf', size: 1, read: async () => new Uint8Array([1]) }];
     fireEvent.click(screen.getByRole('button', { name: 'Open' }));
@@ -55,6 +57,6 @@ export function setup(pageCount = 3, original: (pageIndex: number) => SourceAnno
   render(<AppShell store={store} />);
   /** What the next file picker returns. */
   const pickNext = (files: PickedFile[]) => void (nextFile = files);
-  return { store, open, renderPage, saveFile, writer, secrets, pickNext, platform };
+  return { store, open, renderPage, saveFile, writer, secrets, pickNext, platform, restart };
 }
 

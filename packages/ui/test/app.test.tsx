@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { setup } from './helpers';
 
 const pages = () => within(screen.getByRole('listbox', { name: 'Pages' })).getAllByRole('option');
@@ -19,6 +19,43 @@ describe('AppShell', () => {
     expect(screen.getByRole('heading', { name: 'Pagewright PDF Beta' })).toBeTruthy();
     expect(screen.getByText(/Edit, sign and merge PDFs/)).toBeTruthy();
     expect(screen.getByText(/Your files stay on your device/)).toBeTruthy();
+  });
+
+  it('cleans up copies left by closed tabs when it starts', () => {
+    const { platform } = setup();
+    expect(platform.localData!.cleanUp).toHaveBeenCalledOnce();
+  });
+
+  it('deletes everything stored on the device only after a confirmation that names what goes, then restarts', async () => {
+    const { open, store, platform, restart, secrets } = setup();
+    await open();
+    store.setAuthor('Ada');
+    store.rotatePages(90, [store.getSnapshot().doc.pages[0]!.id]); // an unsaved change
+    fireEvent.click(btn('About Pagewright PDF'));
+    const about = screen.getByRole('dialog', { name: 'About Pagewright PDF' });
+    fireEvent.click(within(about).getByRole('button', { name: /Delete everything stored on this device/ }));
+    const confirm = within(about).getByRole('alert');
+    expect(confirm.textContent).toMatch(/name, saved signatures, tool settings and every working copy/);
+    expect(confirm.textContent).toMatch(/unsaved changes lost: save it first/);
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    expect(platform.localData!.clearAll).not.toHaveBeenCalled();
+
+    fireEvent.click(within(about).getByRole('button', { name: /Delete everything stored on this device/ }));
+    fireEvent.click(within(within(about).getByRole('alert')).getByRole('button', { name: 'Delete everything' }));
+    await waitFor(() => expect(restart).toHaveBeenCalledOnce());
+    expect(platform.localData!.clearAll).toHaveBeenCalledOnce();
+    expect(secrets.size).toBe(0);
+  });
+
+  it('says plainly when deleting fails, and lets you try again', async () => {
+    const { platform, restart } = setup();
+    vi.mocked(platform.localData!.clearAll).mockRejectedValueOnce(new Error('blocked'));
+    fireEvent.click(btn('About Pagewright PDF'));
+    fireEvent.click(screen.getByRole('button', { name: /Delete everything stored on this device/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete everything' }));
+    expect(await screen.findByText(/could not be deleted/)).toBeTruthy();
+    expect(restart).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Delete everything' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('opens the About panel from the start screen and from the toolbar, and closes it', async () => {

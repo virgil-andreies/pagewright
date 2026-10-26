@@ -1099,6 +1099,76 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     check('the highlight from selected text is saved on those words', !!lazy && Math.abs(lazy.right - lazy.x - textWidth('sans', 'lazy dog', 18)) < 3 && lazy.bottom < 660 && lazy.top > 660, JSON.stringify(quads));
     await s.page.screenshot({ path: resolve(SHOTS, 'saved.png') });
   },
+
+  // Last: it closes the page the other scenarios use and leaves a new one.
+  async storedData(s) {
+    console.log('What is stored on the device, and deleting it');
+    // What the app keeps in the browser's private file storage: one folder per tab, with its copies.
+    const copies = (p: typeof s.page) =>
+      p.evaluate(async () => {
+        const out: Record<string, number> = {};
+        try {
+          const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('pagewright-sources');
+          for await (const [name, entry] of (root as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+            let n = 0;
+            if (entry.kind === 'directory') for await (const _ of (entry as unknown as { keys(): AsyncIterable<string> }).keys()) n++;
+            out[name] = n;
+          }
+        } catch {
+          /* no folder at all */
+        }
+        return out;
+      });
+    const stored = (p: typeof s.page) =>
+      p.evaluate(() => new Promise<number>((resolve) => {
+        const req = indexedDB.open('pagewright');
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('kv')) return resolve(0);
+          const count = db.transaction('kv').objectStore('kv').count();
+          count.onsuccess = () => (resolve(count.result), db.close());
+        };
+        req.onerror = () => resolve(-1);
+      }));
+
+    // Start clean, so earlier scenarios' copies do not count.
+    const a = s.page;
+    await a.goto(s.url);
+    await a.evaluate(async () => (await navigator.storage.getDirectory()).removeEntry('pagewright-sources', { recursive: true }).catch(() => {}));
+    await openPdf(a, SAMPLE);
+    const afterOpen = await copies(a);
+    check('opening a PDF keeps one private copy, in this tab’s own folder', Object.values(afterOpen).join() === '1', JSON.stringify(afterOpen));
+
+    // A second tab starting up must not touch the first tab's copy.
+    const b = await s.browser.newPage();
+    await b.goto(s.url);
+    await sleep(800);
+    check('a second tab starting does not delete the first tab’s copy', JSON.stringify(await copies(b)) === JSON.stringify(afterOpen), JSON.stringify(await copies(b)));
+
+    // The first tab closes: the next start deletes what only it needed.
+    await a.close();
+    await sleep(300);
+    await b.reload();
+    await sleep(800);
+    check('once that tab is closed, the next start deletes its copy', Object.keys(await copies(b)).length === 0, JSON.stringify(await copies(b)));
+
+    // Delete everything from the About panel, with a setting saved first (a pen colour).
+    await openPdf(b, SAMPLE);
+    await chooseTool(b, 'Pen');
+    await (await b.$('button[aria-label^="Recent colour: "]'))!.click();
+    await sleep(300);
+    await b.evaluate(() => (document.querySelector('button[aria-label="About Pagewright PDF"]') as HTMLButtonElement).click());
+    await b.waitForSelector('dialog[aria-label="About Pagewright PDF"]');
+    check('there is something stored before deleting', Object.keys(await copies(b)).length === 1 && (await stored(b)) > 0, `${JSON.stringify(await copies(b))} / ${await stored(b)} settings`);
+    await b.evaluate(() => ([...document.querySelectorAll('dialog button')].find((x) => x.textContent?.startsWith('Delete everything stored')) as HTMLButtonElement).click());
+    await b.evaluate(() => ([...document.querySelectorAll('dialog button')].find((x) => x.textContent === 'Delete everything') as HTMLButtonElement).click());
+    await b.waitForNavigation({ waitUntil: 'load' }).catch(() => {});
+    await sleep(800);
+    check('“Delete everything” leaves no copies and no stored settings, and the app starts afresh', Object.keys(await copies(b)).length === 0 && (await stored(b)) === 0 && !!(await b.$('.empty-state')), `${JSON.stringify(await copies(b))} / ${await stored(b)} settings`);
+
+    // Leave a page for the scenarios that follow.
+    s.page = b;
+  },
 };
 
 const wanted = process.argv[2];

@@ -1,4 +1,4 @@
-import { snapshotToPrivateStorage } from './snapshot';
+import { cleanUpPrivateCopies, deleteAllPrivateCopies, snapshotToPrivateStorage } from './snapshot';
 import type {
   DeviceInfo, FileSystemAdapter, PickedFile, Platform, SaveTarget, SecureStore, ShareAdapter,
 } from './interfaces';
@@ -165,6 +165,18 @@ export class IndexedDbStore implements SecureStore {
       tx.onerror = () => reject(tx.error);
     });
   }
+
+  async clear(): Promise<void> {
+    this.memory.clear();
+    const db = await this.open();
+    if (!db) return;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
 }
 
 type NavigatorInfo = Pick<Navigator, 'userAgent' | 'maxTouchPoints'> & {
@@ -189,5 +201,18 @@ export function webDevice(nav: NavigatorInfo = navigator): DeviceInfo {
 }
 
 export function createWebPlatform(): Platform {
-  return { fs: new WebFileSystem(), share: new WebShare(), secure: new IndexedDbStore(), device: webDevice() };
+  const secure = new IndexedDbStore();
+  return {
+    fs: new WebFileSystem(),
+    share: new WebShare(),
+    secure,
+    device: webDevice(),
+    localData: {
+      cleanUp: () => cleanUpPrivateCopies(),
+      clearAll: async () => {
+        await secure.clear();
+        await deleteAllPrivateCopies();
+      },
+    },
+  };
 }
