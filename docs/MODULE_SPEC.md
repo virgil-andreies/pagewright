@@ -419,6 +419,8 @@ Every error maps to a user-facing message and a recovery action. Non-fatal notic
 **Corpus** (`tests/corpus`): scanned, 300 MB+, rotated pages, non-zero CropBox/MediaBox, UserUnit != 1, encrypted (owner and user passwords), digitally signed, form-heavy, CJK and RTL text, broken xref, pre-existing annotations from Acrobat/Preview.
 **Visual regression**: render saved output with PDF.js and diff against golden images (tolerance for antialiasing).
 **Manual viewer matrix** per release: Acrobat, macOS Preview, iOS Files/Quick Look, Chrome, Firefox, Foxit, one Android viewer. Checklist per annotation type: visible, correct position/rotation, removable, comment readable.
+
+Checked 2026-10-26 with `out/sample.pdf` (from `pnpm sample`): Adobe Acrobat and macOS Preview show it as Pagewright does — text markup, ink, shapes, notes with replies, free text in the standard fonts and in Noto (other alphabets), preset stamps, typed signatures, on plain, rotated and offset-CropBox pages. Not in that sample, so not yet checked there: image stamps, filled and semi-transparent shapes, drawn signatures. Still to do: iOS Files/Quick Look, Firefox, Foxit, an Android viewer.
 **Shell parity CI**: run the corpus round-trip in Electron and in WebView2/WKWebView (headless where possible) to keep the Tauri exit option open.
 
 ## 13. Milestones
