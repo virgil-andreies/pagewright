@@ -13,5 +13,10 @@ export default defineConfig({
       ],
     }),
   ],
-  build: { target: 'es2022' },
+  build: {
+    target: 'es2022',
+    // PDF.js alone is over 400 kB and both workers are about 1 MB, so Vite's generic 500 kB warning always fires.
+    // The real budget is checked by scripts/check-bundle.ts (the main file's compressed size, and what must stay out).
+    chunkSizeWarningLimit: 1400,
+  },
 });

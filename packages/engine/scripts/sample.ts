@@ -8,7 +8,8 @@ import {
   History, fitFreeText, strokesToArt, newSignatureRect, newStampRect, stampPreset, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
   type Annotation, type PageId, type Point, type Rect, type ShapeAnnot, type SourceDoc,
 } from '@pagewright/core';
-import { PdfLibWriter, UNICODE_FAMILIES, defaultSaveOpts, typedSignatureArt, unicodeFontFile } from '../src';
+import { PdfLibWriter, UNICODE_FAMILIES, defaultSaveOpts, unicodeFontFile } from '../src';
+import { typedSignatureArt } from '../src/typed-signature';
 
 const SIZE = 18;
 

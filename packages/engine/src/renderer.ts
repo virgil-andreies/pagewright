@@ -2,7 +2,7 @@ import type { Quad, Rect, Rotation, SourceDoc } from '@pagewright/core';
 import { memorySource, normalizeRotation, readRange, sourceSize, type Point, type SourceAnnotation } from '@pagewright/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { ImportedAnnotMeta, PageInfo, PdfRenderer, RenderDoc, RenderOpts, TextLayerOpts, TextRun } from './types';
-import { AppFailure } from './writer';
+import { AppFailure } from './errors';
 
 type PdfjsModule = typeof import('pdfjs-dist');
 

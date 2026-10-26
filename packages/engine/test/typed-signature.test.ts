@@ -7,8 +7,9 @@ import {
   History, addAnnotation, addSource, artPoints, emptyDocument, isSignatureArt, memorySource, newSignatureRect, type Annotation, type SignatureArt, type StampAnnot,
 } from '@pagewright/core';
 import {
-  PdfJsRenderer, PdfLibWriter, buildSignatureAppearance, createSignatureMaker, defaultSaveOpts, typedSignatureArt,
+  PdfJsRenderer, PdfLibWriter, buildSignatureAppearance, createSignatureMaker, defaultSaveOpts,
 } from '../src';
+import { typedSignatureArt } from '../src/typed-signature';
 
 const font = (pkg: string, file: string) => new Uint8Array(readFileSync(fileURLToPath(new URL(`../node_modules/@fontsource/${pkg}/files/${file}.woff`, import.meta.url))));
 const gv = (subset: string) => font('great-vibes', `great-vibes-${subset}-400-normal`);

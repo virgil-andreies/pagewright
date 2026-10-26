@@ -1,15 +1,10 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, degrees } from '@cantoo/pdf-lib';
-import { memorySource, normalizeRotation, preflight, readAll, type AppError, type SourceId, type WorkingDocument } from '@pagewright/core';
+import { memorySource, normalizeRotation, preflight, readAll, type SourceId, type WorkingDocument } from '@pagewright/core';
 import type { UnicodeFontSource } from './unicode-fonts';
 import { DefaultAnnotationWriter, embedStampImages, embedUnicodeFonts, type AnnotationWriter } from './annotation-writer';
 import type { PdfWriter, Progress, SaveOpts } from './types';
 
-/** Thrown for any condition expressed as an AppError (see core/policies). */
-export class AppFailure extends Error {
-  constructor(readonly error: AppError) {
-    super(error.code);
-  }
-}
+import { AppFailure } from './errors';
 
 export interface PdfLibWriterOptions {
   annotationWriter?: AnnotationWriter;

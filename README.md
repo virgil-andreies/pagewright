@@ -56,6 +56,7 @@ Other scripts:
 | `pnpm make-large` | Writes a ~300 MB scanned-style PDF to `out/` for memory testing |
 | `pnpm bench-large <file>` | Measures open, edit and save time and memory on a big PDF |
 | `pnpm gen-font-data` | Regenerates the font metrics in `packages/core` from pdf-lib |
+| `pnpm --filter web build` then `pnpm --filter web check-bundle` | Checks the first download stays small: the main file under its budget, and pdf-lib and the font engine (loaded only when needed) not in it |
 
 ## How it is organised
 

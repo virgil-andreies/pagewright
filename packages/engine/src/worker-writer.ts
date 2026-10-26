@@ -1,7 +1,7 @@
 import { memorySource, preflight, type SourceDoc, type WorkingDocument } from '@pagewright/core';
 import type { SaveMessage, SaveRequest } from './save-protocol';
 import type { PdfWriter, Progress, SaveOpts } from './types';
-import { AppFailure } from './writer';
+import { AppFailure } from './errors';
 
 /** The subset of `Worker` we use, so tests can supply an in-process fake. */
 export interface WorkerLike {

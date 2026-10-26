@@ -1,6 +1,7 @@
 import type { SaveMessage, SaveRequest } from './save-protocol';
 import { urlFontSource } from './unicode-fonts';
-import { AppFailure, PdfLibWriter } from './writer';
+import { AppFailure } from './errors';
+import { PdfLibWriter } from './writer';
 
 /**
  * The body of the save worker, kept free of `self` so it runs (and is tested) anywhere.
