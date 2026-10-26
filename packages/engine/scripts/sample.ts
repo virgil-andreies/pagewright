@@ -1,10 +1,11 @@
 // Builds out/sample.pdf: merged, rotated pages with highlight / underline / strikeout.
 // Run from the repo root: pnpm sample
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { deflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { PDFDocument, StandardFonts, degrees, rgb } from '@cantoo/pdf-lib';
 import {
-  History, fitFreeText, newSignatureRect, newStampRect, stampPreset, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
+  History, fitFreeText, strokesToArt, newSignatureRect, newStampRect, stampPreset, memorySource, addAnnotation, normalizeRect, addSource, emptyDocument, rectToQuad, rotatePages, setMetadata,
   type Annotation, type PageId, type Point, type Rect, type ShapeAnnot, type SourceDoc,
 } from '@pagewright/core';
 import { PdfLibWriter, UNICODE_FAMILIES, defaultSaveOpts, typedSignatureArt, unicodeFontFile } from '../src';
@@ -35,6 +36,35 @@ async function makeSource(id: string, titles: string[], rotate = 0, cropBox?: [n
   const widthOf = (t: string) => font.widthOfTextAtSize(t, SIZE);
   const src: SourceDoc = { id, name: `${id}.pdf`, data: memorySource(bytes), pageCount: titles.length, isEncrypted: false, hasDigitalSignature: false };
   return { src, lines, widthOf };
+}
+
+/** A PNG made pixel by pixel (8-bit RGBA): `pixel` gives [r, g, b, alpha] for each one. */
+function png(w: number, h: number, pixel: (x: number, y: number) => [number, number, number, number]): Uint8Array {
+  const table = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (buf: Buffer) => {
+    let c = 0xffffffff;
+    for (const x of buf) c = table[(c ^ x) & 0xff]! ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc(body));
+    return Buffer.concat([len, body, sum]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(w, 0);
+  header.writeUInt32BE(h, 4);
+  header.set([8, 6, 0, 0, 0], 8);
+  const rows = Array.from({ length: h }, (_, y) => Buffer.from([0, ...Array.from({ length: w }, (_, x) => pixel(x, y)).flat()]));
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  return new Uint8Array(Buffer.concat([signature, chunk('IHDR', header), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]));
 }
 
 /** Rect covering `phrase` inside `line` (Helvetica metrics, so it lines up with the glyphs). */
@@ -156,6 +186,41 @@ async function main() {
   h.execute(addAnnotation(signed('sig-p1', 'p1', 'Ada Lovelace', 300, 150)));
   h.execute(addAnnotation(signed('sig-p3', 'p3', 'Ada Lovelace', 300, 380, red2)));
   h.execute(addAnnotation(signed('sig-p4', 'p4', 'Łukasz Żółć', 250, 300, green2)));
+
+  // Newer features, below the other alphabets on p2 (a page turned sideways, so rotation is checked once more):
+  // a filled, half-transparent rectangle partly over the text above it, a filled ellipse at 70%, a pen stroke at 50%,
+  // two picture stamps (one with a transparent background, one opaque) and a hand-drawn signature.
+  h.execute(addAnnotation(shape('rect-see-through', 'p2', 'rect', { x: 60, y: 240, w: 230, h: 90 }, blue2, 3, { fill: blue2, opacity: 0.5 })));
+  h.execute(addAnnotation(shape('ell-fill', 'p2', 'ellipse', { x: 320, y: 230, w: 200, h: 100 }, red2, 3, { fill: { r: 1, g: 0.85, b: 0.1, a: 1 }, opacity: 0.7 })));
+  const wave = Array.from({ length: 50 }, (_, i): Point => ({ x: 72 + i * 9, y: 190 + 18 * Math.sin(i / 3) }));
+  h.execute(addAnnotation({ ...common, type: 'ink', id: 'ink-half', pageId: 'p2', color: green2, width: 6, opacity: 0.5, strokes: [wave] }));
+  const picture = (id: string, bytes: Uint8Array, cx: number, cy: number, w: number, h: number): Annotation => ({
+    ...common, type: 'stamp', id, pageId: 'p2', color: { r: 0, g: 0, b: 0, a: 1 }, payload: { kind: 'image', mime: 'image/png', bytes },
+    rect: { x: cx - w / 2, y: cy - h / 2, w, h },
+  });
+  // A logo: a green disc with a white tick, the corners transparent so the page shows through.
+  const nearSegment = (x: number, y: number, a: Point, b: Point) => {
+    const t = Math.max(0, Math.min(1, ((x - a.x) * (b.x - a.x) + (y - a.y) * (b.y - a.y)) / ((b.x - a.x) ** 2 + (b.y - a.y) ** 2)));
+    return Math.hypot(x - (a.x + t * (b.x - a.x)), y - (a.y + t * (b.y - a.y)));
+  };
+  const logo = png(160, 160, (x, y) => {
+    if (Math.hypot(x - 80, y - 80) > 76) return [0, 0, 0, 0];
+    // The tick, in picture rows (y grows downwards): down to the bottom of the V, then up to the right.
+    const tick = Math.min(nearSegment(x, y, { x: 44, y: 82 }, { x: 70, y: 108 }), nearSegment(x, y, { x: 70, y: 108 }, { x: 120, y: 52 })) < 8;
+    return tick ? [255, 255, 255, 255] : [26, 153, 77, 255];
+  });
+  // A photo-like picture: an opaque colour gradient.
+  const photo = png(240, 150, (x, y) => [Math.round((x / 240) * 255), Math.round((y / 150) * 200), 200, 255]);
+  h.execute(addAnnotation(picture('img-logo', logo, 130, 100, 80, 80)));
+  h.execute(addAnnotation(picture('img-photo', photo, 300, 100, 160, 100)));
+  // A signature drawn by hand: pen strokes turned into artwork, as the Draw pad does.
+  // Looping pen strokes, like joined-up handwriting, and a flourish underneath (pad units: y grows downwards).
+  const loops = Array.from({ length: 140 }, (_, i): Point => ({ x: 20 + i * 2.4 + 14 * Math.cos(i / 3.2), y: 60 - 26 * Math.sin(i / 3.2) * (1 - i / 220) }));
+  const underline = Array.from({ length: 30 }, (_, i): Point => ({ x: 30 + i * 12, y: 104 - 6 * Math.sin(i / 9) }));
+  h.execute(addAnnotation({
+    ...common, type: 'stamp', id: 'sig-drawn', pageId: 'p2', color: blue2, payload: { kind: 'signature', art: strokesToArt([loops, underline])! },
+    rect: newSignatureRect(strokesToArt([loops, underline])!, { x: 480, y: 100 }, 170),
+  }));
 
   // Extra rotation on top of the source rotation: p2 -> 90, p3 -> 90 + 90.
   h.execute(rotatePages(['p2', 'p3'], 90));
