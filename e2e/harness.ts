@@ -141,6 +141,11 @@ let failures = 0;
 export function check(name: string, ok: boolean, detail = ''): void {
   if (!ok) failures++;
   console.log(`${ok ? '  PASS' : '  FAIL'}  ${name}${!ok && detail ? `  (${detail})` : ''}`);
+  // On GitHub Actions, also list the failure at the top of the run's summary page.
+  if (!ok && process.env.GITHUB_ACTIONS) {
+    const text = `${name}${detail ? ` (${detail})` : ''}`.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    console.log(`::error title=Browser check failed::${text}`);
+  }
 }
 export const failureCount = () => failures;
 
