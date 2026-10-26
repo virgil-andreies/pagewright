@@ -1,4 +1,4 @@
-# Pagewright
+# Pagewright PDF
 
 A PDF app for organising pages and marking up documents. It runs in the browser today, and is built so that desktop (Electron) and mobile (Capacitor) shells can wrap the same code later.
 

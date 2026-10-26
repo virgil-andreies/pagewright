@@ -75,7 +75,7 @@ export interface SaveOpts {
 export const defaultSaveOpts: SaveOpts = {
   flattenAnnotations: false,
   useObjectStreams: true,
-  producer: 'Pagewright',
+  producer: 'Pagewright PDF',
 };
 
 export type Progress = { phase: 'copy' | 'annotate' | 'serialize'; done: number; total: number };

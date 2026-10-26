@@ -934,6 +934,25 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     check('opened again, PDF.js draws it see-through: paper shows through the blue', px[2]! > px[0]! + 40 && px[0]! > 80, JSON.stringify(px));
   },
 
+  async startScreen(s) {
+    console.log('Start screen and published files');
+    const failed: string[] = [];
+    const watch = (r: { status(): number; url(): string }) => r.status() >= 400 && failed.push(`${r.status()} ${r.url()}`);
+    s.page.on('response', watch);
+    await s.page.goto(s.url);
+    await sleep(500);
+    check('the tab says what the app is', /^Pagewright PDF — /.test(await s.page.title()), await s.page.title());
+    const icon = await s.page.$eval('.empty-state img.brand-icon', (i) => (i as HTMLImageElement).naturalWidth);
+    check('the start screen shows the app’s icon and name', icon > 0 && (await s.page.$eval('.empty-state h1', (h) => h.textContent)) === 'Pagewright PDF');
+    for (const path of ['/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png']) {
+      const r = await s.page.evaluate(async (p) => (await fetch(p)).status, path);
+      check(`${path} is published`, r === 200, String(r));
+    }
+    await openPdf(s.page, SAMPLE);
+    check('nothing the app asks for is missing (no 404s)', failed.length === 0, JSON.stringify(failed));
+    s.page.off('response', watch);
+  },
+
   async zoom(s) {
     console.log('Zoom and fit width');
     await openPdf(s.page, SAMPLE);

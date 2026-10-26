@@ -2,7 +2,7 @@ export * from './store';
 export * from './react';
 export { AppShell, PagewrightProvider } from './components/AppShell';
 export { PageGrid } from './components/PageGrid';
-export { Viewer } from './components/Viewer';
+export { Viewer, type Brand } from './components/Viewer';
 export { Toolbar } from './components/Toolbar';
 export { AnnotationOverlay } from './components/AnnotationOverlay';
 export { TextLayer } from './components/TextLayer';

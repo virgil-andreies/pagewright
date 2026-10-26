@@ -34,7 +34,13 @@ function PageView({ page, index }: { page: PageRef; index: number }) {
   );
 }
 
-export function Viewer() {
+/** How the app presents itself on the start screen: its name, and its icon when the app has one to show. */
+export interface Brand {
+  name: string;
+  icon?: string;
+}
+
+export function Viewer({ brand }: { brand?: Brand } = {}) {
   const { store, pages } = useUi();
   const { doc, ui } = useSnapshot();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -116,6 +122,9 @@ export function Viewer() {
       ))}
       {doc.pages.length === 0 && (
         <div className="empty-state">
+          {brand?.icon && <img className="brand-icon" src={brand.icon} alt="" width={72} height={72} />}
+          <h1 className="brand-name">{brand?.name ?? 'Pagewright PDF'}</h1>
+          <p className="brand-tagline">Edit, sign and merge PDFs, right in your browser.</p>
           <p>Open a PDF to get started</p>
           <button onClick={() => void store.platform.fs.pickFiles({ multiple: true, accept: ['.pdf', 'application/pdf'] }).then((f) => store.addFiles(f))}>
             Open PDF

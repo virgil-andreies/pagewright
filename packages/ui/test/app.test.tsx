@@ -14,6 +14,12 @@ describe('AppShell', () => {
     expect(btn('Delete').disabled).toBe(true);
   });
 
+  it('greets with the app’s name and what it does', () => {
+    setup();
+    expect(screen.getByRole('heading', { name: 'Pagewright PDF' })).toBeTruthy();
+    expect(screen.getByText(/Edit, sign and merge PDFs/)).toBeTruthy();
+  });
+
   it('opens a file, lists thumbnails and enables saving', async () => {
     const { open } = setup();
     await open();

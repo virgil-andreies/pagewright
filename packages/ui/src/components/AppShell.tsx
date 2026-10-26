@@ -7,7 +7,7 @@ import { Dialogs } from './Dialogs';
 import { PageGrid } from './PageGrid';
 import { PHONE_QUERY, PhoneDock, PhoneTopBar, useMediaQuery } from './PhoneToolbar';
 import { Toolbar } from './Toolbar';
-import { Viewer } from './Viewer';
+import { Viewer, type Brand } from './Viewer';
 import '../styles.css';
 
 export function PagewrightProvider({ store, children }: { store: AppStore; children: ReactNode }) {
@@ -54,7 +54,7 @@ function useShortcuts(store: AppStore) {
   }, [store]);
 }
 
-function Shell({ store }: { store: AppStore }) {
+function Shell({ store, brand }: { store: AppStore; brand?: Brand }) {
   useShortcuts(store);
   const commentsOpen = useSnapshot().ui.commentsOpen;
   // A phone gets a slim bar at the top and the tools at the bottom, within reach of a thumb.
@@ -70,7 +70,7 @@ function Shell({ store }: { store: AppStore }) {
           <PageGrid />
         </aside>
         <main className="main">
-          <Viewer />
+          <Viewer brand={brand} />
         </main>
         {commentsOpen && <CommentsPanel />}
       </div>
@@ -80,10 +80,10 @@ function Shell({ store }: { store: AppStore }) {
   );
 }
 
-export function AppShell({ store }: { store: AppStore }) {
+export function AppShell({ store, brand }: { store: AppStore; brand?: Brand }) {
   return (
     <PagewrightProvider store={store}>
-      <Shell store={store} />
+      <Shell store={store} brand={brand} />
     </PagewrightProvider>
   );
 }
