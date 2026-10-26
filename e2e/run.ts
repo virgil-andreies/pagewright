@@ -196,11 +196,14 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     const total = await yellow(areaNow);
     check('the highlight is still in the page image after the panel opened', total > 200, `${total}`);
     // Selecting it again (the earlier selection is still there), then deleting: gone from the image, others stay.
+    // Plain black text has a few yellowish edge pixels on some systems (Linux Chrome tints its anti-aliasing), so
+    // count those in a same-sized area of the unhighlighted line below and allow them on top of a small sliver.
+    const box = (await wordRectOf(s, 'box'))!;
+    const plain = await yellow({ ...areaNow, y: box.y });
     await s.page.keyboard.press('Delete');
-    const gone = (n: number) => n < total * 0.03;
+    const gone = (n: number) => n < total * 0.03 + plain * 1.5;
     const after = await yellowOnceRedrawn(areaNow, gone); // the page image is drawn again
-    // A few anti-aliased text pixels can look yellowish, so allow a sliver rather than demanding exactly none.
-    check('Delete takes the highlight out of the page image', after < total * 0.03, `${after} of ${total} yellow pixels left`);
+    check('Delete takes the highlight out of the page image', gone(after), `${after} of ${total} yellow pixels left; plain text has ${plain}`);
     check('and out of the comments panel', !(await threads()).includes('Highlight with a comment'));
     await s.page.screenshot({ path: resolve(SHOTS, 'original-deleted.png') });
 
@@ -209,7 +212,7 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     check('Ctrl+Z brings it back in the image', back > total * 0.9, `${back} of ${total} yellow pixels`);
     await ctrl(s, 'y');
     const again = await yellowOnceRedrawn(areaNow, gone);
-    check('Ctrl+Y removes it again', gone(again), `${again} of ${total} yellow pixels left`);
+    check('Ctrl+Y removes it again', gone(again), `${again} of ${total} yellow pixels left; plain text has ${plain}`);
 
     // Delete a note thread from the panel.
     const note = await s.page.$('.thread[data-annot-id^="pdf:"] .row-actions button');
