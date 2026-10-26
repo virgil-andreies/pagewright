@@ -7,7 +7,8 @@ import { Dialogs } from './Dialogs';
 import { PageGrid } from './PageGrid';
 import { PHONE_QUERY, PhoneDock, PhoneTopBar, useMediaQuery } from './PhoneToolbar';
 import { Toolbar } from './Toolbar';
-import { Viewer, type Brand } from './Viewer';
+import { BrandContext, DEFAULT_BRAND, type Brand } from '../brand';
+import { Viewer } from './Viewer';
 import '../styles.css';
 
 export function PagewrightProvider({ store, children }: { store: AppStore; children: ReactNode }) {
@@ -54,7 +55,7 @@ function useShortcuts(store: AppStore) {
   }, [store]);
 }
 
-function Shell({ store, brand }: { store: AppStore; brand?: Brand }) {
+function Shell({ store }: { store: AppStore }) {
   useShortcuts(store);
   const commentsOpen = useSnapshot().ui.commentsOpen;
   // A phone gets a slim bar at the top and the tools at the bottom, within reach of a thumb.
@@ -70,7 +71,7 @@ function Shell({ store, brand }: { store: AppStore; brand?: Brand }) {
           <PageGrid />
         </aside>
         <main className="main">
-          <Viewer brand={brand} />
+          <Viewer />
         </main>
         {commentsOpen && <CommentsPanel />}
       </div>
@@ -80,10 +81,12 @@ function Shell({ store, brand }: { store: AppStore; brand?: Brand }) {
   );
 }
 
-export function AppShell({ store, brand }: { store: AppStore; brand?: Brand }) {
+export function AppShell({ store, brand = DEFAULT_BRAND }: { store: AppStore; brand?: Brand }) {
   return (
     <PagewrightProvider store={store}>
-      <Shell store={store} brand={brand} />
+      <BrandContext.Provider value={brand}>
+        <Shell store={store} />
+      </BrandContext.Provider>
     </PagewrightProvider>
   );
 }

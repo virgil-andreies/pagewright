@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  ChevronDown, Copy, EllipsisVertical, FileDown, FolderOpen, MessageSquare, MoveHorizontal, Redo2, RotateCcw, RotateCw, Save, Trash, Undo2, X, ZoomIn,
+  ChevronDown, Copy, EllipsisVertical, FileDown, FolderOpen, Info, MessageSquare, MoveHorizontal, Redo2, RotateCcw, RotateCw, Save, Trash, Undo2, X, ZoomIn,
   ZoomOut, type LucideIcon,
 } from 'lucide-react';
 import type { RGBA } from '@pagewright/core';
 import { listThreads } from '../comments';
+import { useBrand } from '../brand';
 import { useSnapshot, useUi } from '../react';
 import { ColourControl, FillControl, OpacityControl, ThicknessControl } from './StyleOptions';
 import { FontControls, ICON, IconButton, SignatureControls, StampControls, TOOL_GROUPS, usePickTool, useToolOptions } from './Toolbar';
@@ -70,6 +71,7 @@ export function PhoneTopBar() {
 /** The actions that do not fit the phone's top bar, in a panel that slides up from the bottom. */
 function MoreSheet({ onClose }: { onClose: () => void }) {
   const { store } = useUi();
+  const brand = useBrand();
   const { doc, ui } = useSnapshot();
   const panel = useRef<HTMLDivElement>(null);
   const hasPages = doc.pages.length > 0;
@@ -114,6 +116,9 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
           {row(Copy, 'Duplicate', () => store.duplicatePages(targets), none)}
           {row(FileDown, 'Extract to a new PDF', () => void store.extract(targets), none || busy)}
           {row(Trash, 'Delete', () => store.deletePages(targets), none, true)}
+        </div>
+        <div className="sheet-section">
+          {row(Info, `About ${brand.name}`, () => store.openAbout(), false)}
         </div>
         <div className="sheet-section" role="group" aria-label="Zoom">
           <span className="sheet-caption">Zoom</span>

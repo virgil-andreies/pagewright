@@ -33,6 +33,15 @@ if (import.meta.env.DEV) (window as unknown as { pagewright: unknown }).pagewrig
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppShell store={store} brand={{ name: 'Pagewright PDF', icon: `${import.meta.env.BASE_URL}favicon.svg` }} />
+    <AppShell
+      store={store}
+      brand={{
+        name: 'Pagewright PDF',
+        icon: `${import.meta.env.BASE_URL}favicon.svg`,
+        version: __APP_VERSION__,
+        commit: __APP_COMMIT__,
+        sourceUrl: 'https://github.com/virgil-andreies/pagewright',
+      }}
+    />
   </StrictMode>,
 );

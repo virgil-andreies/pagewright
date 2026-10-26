@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { displaySize, type PageRef } from '@pagewright/core';
 import { geometryOf, useNearViewport, usePageInfo, usePageRender, useSnapshot, useUi } from '../react';
 import { applySelectionMarkup } from '../selection';
+import { useBrand } from '../brand';
 import { AnnotationOverlay } from './AnnotationOverlay';
 import { TextLayer } from './TextLayer';
 
@@ -34,13 +35,8 @@ function PageView({ page, index }: { page: PageRef; index: number }) {
   );
 }
 
-/** How the app presents itself on the start screen: its name, and its icon when the app has one to show. */
-export interface Brand {
-  name: string;
-  icon?: string;
-}
-
-export function Viewer({ brand }: { brand?: Brand } = {}) {
+export function Viewer() {
+  const brand = useBrand();
   const { store, pages } = useUi();
   const { doc, ui } = useSnapshot();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -122,14 +118,20 @@ export function Viewer({ brand }: { brand?: Brand } = {}) {
       ))}
       {doc.pages.length === 0 && (
         <div className="empty-state">
-          {brand?.icon && <img className="brand-icon" src={brand.icon} alt="" width={72} height={72} />}
-          <h1 className="brand-name">{brand?.name ?? 'Pagewright PDF'}</h1>
+          {brand.icon && <img className="brand-icon" src={brand.icon} alt="" width={72} height={72} />}
+          <h1 className="brand-name">
+            {brand.name} <span className="beta">Beta</span>
+          </h1>
           <p className="brand-tagline">Edit, sign and merge PDFs, right in your browser.</p>
           <p>Open a PDF to get started</p>
           <button onClick={() => void store.platform.fs.pickFiles({ multiple: true, accept: ['.pdf', 'application/pdf'] }).then((f) => store.addFiles(f))}>
             Open PDF
           </button>
           <p className="hint">or drop files anywhere in this window</p>
+          <p className="privacy-line">
+            Your files stay on your device.{' '}
+            <button className="link" onClick={() => store.openAbout()}>How it works</button>
+          </p>
         </div>
       )}
     </div>

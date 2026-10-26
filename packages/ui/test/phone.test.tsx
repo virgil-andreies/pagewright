@@ -139,6 +139,13 @@ describe('the More panel', () => {
     expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull();
   });
 
+  it('opens the About panel', async () => {
+    const t = await ready();
+    fireEvent.click(within(t.more()).getByRole('button', { name: 'About Pagewright PDF' }));
+    expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'About Pagewright PDF' })).toBeTruthy();
+  });
+
   it('puts focus in the panel when it opens', async () => {
     const t = await ready();
     const sheet = t.more();

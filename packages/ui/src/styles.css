@@ -213,6 +213,15 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .empty-state { margin: auto; text-align: center; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 24px 16px; }
 .empty-state .brand-icon { margin-bottom: 8px; }
 .empty-state .brand-name { margin: 0; font-size: 26px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.beta { display: inline-block; vertical-align: middle; margin-left: 6px; padding: 1px 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-strong); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+.empty-state .privacy-line { margin-top: 18px; font-size: 13px; }
+button.link { border: 0; padding: 0; background: none; color: var(--accent-strong); text-decoration: underline; font: inherit; cursor: pointer; }
+.modal:has(.about) { max-width: 480px; width: min(480px, calc(100vw - 32px)); }
+.about p { margin: 6px 0; line-height: 1.45; }
+.about ul { margin: 4px 0; padding-left: 20px; line-height: 1.5; }
+.about .about-name { font-size: 18px; margin-top: 0; }
+.about .about-version, .about .about-small { color: var(--muted); font-size: 13px; }
+.about a { color: var(--accent-strong); }
 .empty-state .brand-tagline { margin: 0 0 18px; font-size: 15px; }
 .empty-state p { margin: 4px 0; }
 .empty-state button { margin: 8px 0 4px; padding: 8px 18px; font-size: 15px; }

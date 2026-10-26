@@ -943,7 +943,12 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     await sleep(500);
     check('the tab says what the app is', /^Pagewright PDF — /.test(await s.page.title()), await s.page.title());
     const icon = await s.page.$eval('.empty-state img.brand-icon', (i) => (i as HTMLImageElement).naturalWidth);
-    check('the start screen shows the app’s icon and name', icon > 0 && (await s.page.$eval('.empty-state h1', (h) => h.textContent)) === 'Pagewright PDF');
+    check('the start screen shows the app’s icon and name', icon > 0 && /^Pagewright PDF/.test((await s.page.$eval('.empty-state h1', (h) => h.textContent)) ?? ''));
+    await clickButton(s.page, 'How it works');
+    await s.page.waitForSelector('dialog[aria-label="About Pagewright PDF"]');
+    const about = await s.page.$eval('dialog[aria-label="About Pagewright PDF"]', (d) => d.textContent ?? '');
+    check('the About panel shows the version it was built from, and the privacy summary', /Version 0\.1\.0 · [0-9a-f]{7}/.test(about) && /never uploaded/.test(about), about.slice(0, 120));
+    await clickButton(s.page, 'Close');
     for (const path of ['/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png']) {
       const r = await s.page.evaluate(async (p) => (await fetch(p)).status, path);
       check(`${path} is published`, r === 200, String(r));

@@ -65,6 +65,8 @@ export interface UiState {
   /** Signatures saved on this device (see SecureStore), newest last. */
   signatures: readonly SavedSignature[];
   signatureDialog: boolean;
+  /** The About panel: what the app is, its version, and what happens to your files. */
+  aboutOpen?: boolean;
   /** The saved signature the Signature tool places next. */
   activeSignature?: string;
   commentsOpen: boolean;
@@ -471,6 +473,10 @@ export class AppStore {
   }
 
   // ---- Signatures --------------------------------------------------------------------------------
+
+  openAbout(open = true): void {
+    this.patch({ aboutOpen: open });
+  }
 
   openSignatures(open = true): void {
     this.patch({ signatureDialog: open });

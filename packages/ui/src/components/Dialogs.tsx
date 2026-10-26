@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { describeError } from '@pagewright/core';
 import { useSnapshot, useUi } from '../react';
 import { Modal } from './Modal';
+import { AboutDialog } from './AboutDialog';
 import { SignatureDialog } from './SignatureDialog';
 
 function PasswordDialog({ fileName, wrong }: { fileName: string; wrong: boolean }) {
@@ -31,6 +32,7 @@ export function Dialogs() {
 
   return (
     <>
+      {ui.aboutOpen && <AboutDialog />}
       {ui.passwordPrompt && <PasswordDialog key={ui.passwordPrompt.fileName + ui.passwordPrompt.wrong} {...ui.passwordPrompt} />}
       {ui.signatureDialog && <SignatureDialog />}
       {ui.saveWarning && (

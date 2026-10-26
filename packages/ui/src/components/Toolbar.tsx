@@ -1,12 +1,13 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import {
-  Copy, Ellipse, FileDown, FolderOpen, Highlighter, MessageSquare, MousePointer2, MoveHorizontal, MoveUpRight, PenLine, RectangleHorizontal, Redo2,
+  Copy, Ellipse, FileDown, FolderOpen, Highlighter, Info, MessageSquare, MousePointer2, MoveHorizontal, MoveUpRight, PenLine, RectangleHorizontal, Redo2,
   RotateCcw, RotateCw, Save, Signature, Slash, Stamp, StickyNote, Strikethrough, Trash, Type, Underline, Undo2, ZoomIn, ZoomOut,
   type LucideIcon,
 } from 'lucide-react';
 import { FONT_SIZES, STAMP_PRESETS, type FontFamily } from '@pagewright/core';
 import { listThreads } from '../comments';
 import { applySelectionMarkup, hasSelection } from '../selection';
+import { useBrand } from '../brand';
 import { useSnapshot, useUi } from '../react';
 import type { ToolId } from '../store';
 import { hasFill, hasOpacity, hasThickness, isStyledTool } from '../tool-style';
@@ -229,6 +230,7 @@ function ToolOptions() {
 
 export function Toolbar() {
   const { store } = useUi();
+  const brand = useBrand();
   const { doc, ui, imported, canUndo, canRedo, undoLabel, redoLabel } = useSnapshot();
   const hasPages = doc.pages.length > 0;
   const hasSel = ui.selection.size > 0;
@@ -293,6 +295,7 @@ export function Toolbar() {
           <span className="label">Comments</span>
           {threadCount > 0 && <span className="badge" aria-hidden="true">{threadCount}</span>}
         </LabelButton>
+        <IconButton icon={Info} label={`About ${brand.name}`} tip={`About ${brand.name}: version, privacy`} onClick={() => store.openAbout()} />
       </div>
       <div className="toolbar-row tools-row">
         <div className="tool-groups" role="radiogroup" aria-label="Tool">

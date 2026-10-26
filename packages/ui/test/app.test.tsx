@@ -14,10 +14,24 @@ describe('AppShell', () => {
     expect(btn('Delete').disabled).toBe(true);
   });
 
-  it('greets with the app’s name and what it does', () => {
+  it('greets with the app’s name, a Beta label, what it does, and that files stay on the device', () => {
     setup();
-    expect(screen.getByRole('heading', { name: 'Pagewright PDF' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Pagewright PDF Beta' })).toBeTruthy();
     expect(screen.getByText(/Edit, sign and merge PDFs/)).toBeTruthy();
+    expect(screen.getByText(/Your files stay on your device/)).toBeTruthy();
+  });
+
+  it('opens the About panel from the start screen and from the toolbar, and closes it', async () => {
+    setup();
+    fireEvent.click(btn('How it works'));
+    const about = screen.getByRole('dialog', { name: 'About Pagewright PDF' });
+    expect(within(about).getByText(/never uploaded/)).toBeTruthy();
+    expect(within(about).getByText(/Cloudflare/)).toBeTruthy();
+    expect(within(about).getByText(/private working copy of each PDF/)).toBeTruthy();
+    fireEvent.click(within(about).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'About Pagewright PDF' })).toBeNull();
+    fireEvent.click(btn('About Pagewright PDF'));
+    expect(screen.getByRole('dialog', { name: 'About Pagewright PDF' })).toBeTruthy();
   });
 
   it('opens a file, lists thumbnails and enables saving', async () => {

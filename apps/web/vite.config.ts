@@ -1,8 +1,27 @@
+import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
+/** The app's version, from its package.json: one place to change it. */
+const version = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version;
+
+/** The code version the app is built from, so a problem report says exactly which build it came from. */
+function commit(): string {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 7); // building on GitHub
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return 'dev';
+  }
+}
+
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
+    __APP_COMMIT__: JSON.stringify(commit()),
+  },
   plugins: [
     react(),
     // PDF.js loads standard fonts and CMaps (CJK etc.) at runtime from these URLs.
