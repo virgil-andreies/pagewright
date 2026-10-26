@@ -8,8 +8,10 @@ export default defineConfig({
     // PDF.js loads standard fonts and CMaps (CJK etc.) at runtime from these URLs.
     viteStaticCopy({
       targets: [
-        { src: 'node_modules/pdfjs-dist/standard_fonts/*', dest: 'pdfjs/standard_fonts' },
-        { src: 'node_modules/pdfjs-dist/cmaps/*', dest: 'pdfjs/cmaps' },
+        // `stripBase`: the files themselves, straight into these folders (the plugin would otherwise rebuild the
+        // node_modules/pdfjs-dist/... path inside them, and PDF.js would not find them).
+        { src: 'node_modules/pdfjs-dist/standard_fonts/*', dest: 'pdfjs/standard_fonts', rename: { stripBase: true } },
+        { src: 'node_modules/pdfjs-dist/cmaps/*', dest: 'pdfjs/cmaps', rename: { stripBase: true } },
       ],
     }),
   ],

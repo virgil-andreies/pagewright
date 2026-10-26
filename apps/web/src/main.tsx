@@ -15,6 +15,7 @@ const platform = createWebPlatform();
 const renderer = new PdfJsRenderer({
   pdfjs,
   standardFontDataUrl: `${import.meta.env.BASE_URL}pdfjs/standard_fonts/`,
+  cMapUrl: `${import.meta.env.BASE_URL}pdfjs/cmaps/`,
 });
 // Saving runs in a worker (spec section 9); the result is verified here with PDF.js.
 const writer = new WorkerPdfWriter({

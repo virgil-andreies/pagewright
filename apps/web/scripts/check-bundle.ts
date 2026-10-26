@@ -2,7 +2,7 @@
 //   pnpm --filter web build && pnpm --filter web check-bundle
 // The main file must stay under the budget, and the parts that are loaded only when needed (pdf-lib, which saves
 // in the background worker, and the font engine for typed signatures) must not slip back into it.
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
@@ -30,6 +30,13 @@ for (const [what, markers] of Object.entries(outsiders)) {
   if (markers.some((m) => text.includes(m))) problems.push(`${what} is in the main file again; it should load only when needed`);
 }
 if (!files.some((f) => /^typed-signature-.*\.js$/.test(f))) problems.push('typed signatures are no longer a separate file');
+
+// PDF.js fetches its standard fonts and character maps at run time from exactly these paths: a file in the wrong
+// place is not a 404 on most hosts but the app's own page, which PDF.js then fails to read.
+const dist = resolve(import.meta.dirname, '../dist');
+for (const needed of ['pdfjs/cmaps/UniJIS-UCS2-H.bcmap', 'pdfjs/cmaps/UniGB-UCS2-H.bcmap', 'pdfjs/standard_fonts/FoxitFixed.pfb', 'pdfjs/standard_fonts/LiberationSans-Regular.ttf']) {
+  if (!existsSync(resolve(dist, needed))) problems.push(`${needed} is not where PDF.js will look for it`);
+}
 
 const total = files.reduce((n, f) => n + statSync(resolve(assets, f)).size, 0);
 console.log(`main file: ${Math.round(code.length / 1024)} KB (${gzipKB} KB compressed); all assets: ${Math.round(total / 1024)} KB`);

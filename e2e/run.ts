@@ -953,6 +953,37 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     s.page.off('response', watch);
   },
 
+  async cjk(s) {
+    console.log('Chinese, Japanese and Korean text in fonts the PDF does not embed');
+    // A page whose Japanese text uses a font that is not in the file: a viewer needs PDF.js's character maps for it.
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([400, 200]);
+    const ctx = pdf.context;
+    const descendant = ctx.obj({
+      Type: 'Font', Subtype: 'CIDFontType0', BaseFont: 'KozMinPr6N-Regular',
+      CIDSystemInfo: { Registry: PDFHexString.fromText('Adobe'), Ordering: PDFHexString.fromText('Japan1'), Supplement: 2 },
+      FontDescriptor: ctx.obj({ Type: 'FontDescriptor', FontName: 'KozMinPr6N-Regular', Flags: 4, FontBBox: [0, -150, 1000, 880], ItalicAngle: 0, Ascent: 880, Descent: -120, CapHeight: 700, StemV: 80 }),
+    });
+    const type0 = ctx.register(ctx.obj({ Type: 'Font', Subtype: 'Type0', BaseFont: 'KozMinPr6N-Regular', Encoding: 'UniJIS-UCS2-H', DescendantFonts: [ctx.register(descendant)] }));
+    page.node.setFontDictionary(PDFName.of('F1'), type0);
+    const codes = [...'日本語のテキスト'].map((ch) => ch.codePointAt(0)!.toString(16).padStart(4, '0')).join('');
+    page.node.set(PDFName.of('Contents'), ctx.register(ctx.stream(`BT /F1 24 Tf 40 100 Td <${codes}> Tj ET`)));
+    const file = resolve(SHOTS, 'inputs', 'japanese.pdf');
+    mkdirSync(resolve(SHOTS, 'inputs'), { recursive: true });
+    writeFileSync(file, await pdf.save());
+
+    const maps: number[] = [];
+    const watch = (r: { url(): string; status(): number }) => r.url().includes('/pdfjs/cmaps/') && maps.push(r.status());
+    s.page.on('response', watch);
+    await s.page.goto(s.url);
+    await openPdf(s.page, file);
+    await sleep(800);
+    s.page.off('response', watch);
+    check('the app fetches the character map it needs from where it is published', maps.length > 0 && maps.every((st) => st === 200), JSON.stringify(maps));
+    const text = await s.page.$eval('.page-view .textLayer', (e) => e.textContent ?? '');
+    check('and the page’s text reads as the Japanese it is (selectable, searchable)', text.includes('日本語のテキスト'), JSON.stringify(text));
+  },
+
   async zoom(s) {
     console.log('Zoom and fit width');
     await openPdf(s.page, SAMPLE);

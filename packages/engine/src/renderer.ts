@@ -15,6 +15,11 @@ export interface PdfJsRendererOptions {
   pdfjs?: PdfjsModule;
   /** URL/path (with trailing slash) of pdfjs-dist/standard_fonts/. Needed in Node to measure and render standard fonts. */
   standardFontDataUrl?: string;
+  /**
+   * URL/path (with trailing slash) of pdfjs-dist/cmaps/: the character maps for Chinese, Japanese and Korean text in
+   * fonts the PDF does not embed. Without them such text shows as missing or wrong characters.
+   */
+  cMapUrl?: string;
 }
 
 const WHOLE_FILE_MAX = 4 * 1024 * 1024;
@@ -58,6 +63,7 @@ export class PdfJsRenderer implements PdfRenderer {
       ...(await this.input(pdfjs, source)),
       password,
       ...(this.opts.standardFontDataUrl ? { standardFontDataUrl: this.opts.standardFontDataUrl } : {}),
+      ...(this.opts.cMapUrl ? { cMapUrl: this.opts.cMapUrl, cMapPacked: true } : {}),
     });
     try {
       return new PdfJsDoc(source.id, await task.promise, pdfjs);
