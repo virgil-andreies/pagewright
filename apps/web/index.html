@@ -15,6 +15,14 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <div style="max-width: 440px; margin: 15vh auto 0; padding: 0 16px; font: 15px/1.5 system-ui, sans-serif; text-align: center">
+        <h1 style="font-size: 22px; margin: 0 0 8px">Pagewright PDF needs JavaScript</h1>
+        <p style="margin: 0">It runs entirely in your browser, so your files never leave your device. Please turn JavaScript on for this site.</p>
+      </div>
+    </noscript>
+    <!-- Before the app: shows a message instead of a blank page in browsers too old to run it. -->
+    <script src="/browser-check.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

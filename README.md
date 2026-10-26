@@ -121,6 +121,7 @@ The design, the data model and the decisions behind them are in [docs/MODULE_SPE
 
 ## Known limits
 
+- **Browsers from 2022 on:** Chrome and Edge 98+, Firefox 94+, Safari 15.4+. Older browsers get a message asking to update. Only Chrome and Edge can save over the original file; the others save a copy to your downloads.
 - **Text boxes cannot show Chinese, Japanese, Korean, Arabic, Hebrew, Indic scripts or emoji**: those are replaced by `?`, with a warning while you type.
 - **Saving needs about 4.5 times the size of the source files in memory.** Larger documents can still be opened, viewed and marked up, but saving is refused with an explanation, rather than risking a crashed tab. Phones allow roughly 200 to 270 MB of source files.
 - **Encrypted PDFs** can be viewed but not saved. **Digitally signed PDFs** can be edited, but saving invalidates their signatures (you are asked first).

@@ -31,17 +31,20 @@ const store = new AppStore({ renderer, writer, platform, signatureMaker: createS
 // Handy for poking at state from the console while developing.
 if (import.meta.env.DEV) (window as unknown as { pagewright: unknown }).pagewright = store;
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <AppShell
-      store={store}
-      brand={{
-        name: 'Pagewright PDF',
-        icon: `${import.meta.env.BASE_URL}favicon.svg`,
-        version: __APP_VERSION__,
-        commit: __APP_COMMIT__,
-        sourceUrl: 'https://github.com/virgil-andreies/pagewright',
-      }}
-    />
-  </StrictMode>,
-);
+// public/browser-check.js has already put up a message if this browser is too old to run the app.
+if (!(window as unknown as { __pagewrightUnsupported?: boolean }).__pagewrightUnsupported) {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <AppShell
+        store={store}
+        brand={{
+          name: 'Pagewright PDF',
+          icon: `${import.meta.env.BASE_URL}favicon.svg`,
+          version: __APP_VERSION__,
+          commit: __APP_COMMIT__,
+          sourceUrl: 'https://github.com/virgil-andreies/pagewright',
+        }}
+      />
+    </StrictMode>,
+  );
+}

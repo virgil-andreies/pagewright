@@ -949,7 +949,7 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     const about = await s.page.$eval('dialog[aria-label="About Pagewright PDF"]', (d) => d.textContent ?? '');
     check('the About panel shows the version it was built from, and the privacy summary', /Version 0\.1\.0 · [0-9a-f]{7}/.test(about) && /never uploaded/.test(about), about.slice(0, 120));
     await clickButton(s.page, 'Close');
-    for (const path of ['/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png']) {
+    for (const path of ['/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png', '/browser-check.js']) {
       const r = await s.page.evaluate(async (p) => (await fetch(p)).status, path);
       check(`${path} is published`, r === 200, String(r));
     }
@@ -1098,6 +1098,41 @@ const scenarios: Record<string, (s: Session) => Promise<void>> = {
     const lazy = quads.find((q) => Math.abs(q.x - (72 + lead)) < 3);
     check('the highlight from selected text is saved on those words', !!lazy && Math.abs(lazy.right - lazy.x - textWidth('sans', 'lazy dog', 18)) < 3 && lazy.bottom < 660 && lazy.top > 660, JSON.stringify(quads));
     await s.page.screenshot({ path: resolve(SHOTS, 'saved.png') });
+  },
+
+  async oldBrowser(s) {
+    console.log('Browsers that cannot run the app');
+    // A browser from before 2022: take away two of the features the check looks for, before the page loads.
+    const old = await s.browser.newPage();
+    try {
+      await old.evaluateOnNewDocument(() => {
+        delete (Array.prototype as unknown as { at?: unknown }).at;
+        delete (Object as unknown as { hasOwn?: unknown }).hasOwn;
+      });
+      await old.goto(s.url);
+      await sleep(600);
+      const message = await old.$eval('#root', (r) => r.textContent ?? '');
+      check('a browser too old for the app gets a message, not a blank page', /needs a newer browser/.test(message), message.slice(0, 80));
+      check('and the app does not start in it', !(await old.$('.toolbar')));
+    } finally {
+      await old.close();
+    }
+
+    // JavaScript switched off.
+    const noJs = await s.browser.newPage();
+    try {
+      await noJs.setJavaScriptEnabled(false);
+      await noJs.goto(s.url);
+      const text = await noJs.evaluate(() => document.body.innerText);
+      check('with JavaScript off, the page says why it cannot work', /needs JavaScript/.test(text), text.slice(0, 80));
+    } finally {
+      await noJs.close();
+    }
+
+    // And a current browser is not mistaken for an old one.
+    await s.page.goto(s.url);
+    await sleep(500);
+    check('a current browser runs the app as usual', !!(await s.page.$('.toolbar')) && !(await s.page.$('#root [role=alert]')));
   },
 
   // Last: it closes the page the other scenarios use and leaves a new one.
